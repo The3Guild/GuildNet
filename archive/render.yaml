@@ -1,0 +1,33 @@
+services:
+  - type: web
+    name: guildnet-backend
+    runtime: node
+    rootDir: backend
+    buildCommand: npm install
+    startCommand: node dist/server.js
+    branch: fix/a2a-payment-flow
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: RPC_URL
+        sync: false
+      - key: CHAIN_ID
+        sync: false
+      - key: COORDINATOR_PRIVATE_KEY
+        sync: false
+      - key: AGENT_REGISTRY_ADDRESS
+        sync: false
+      - key: GUILD_PERMISSIONS_ADDRESS
+        sync: false
+      - key: TASK_COORDINATOR_ADDRESS
+        sync: false
+      - key: VENICE_API_KEY
+        sync: false
+      - key: VENICE_BASE_URL
+        value: https://api.venice.ai/api/v1
+      - key: ONESHOT_API_KEY
+        sync: false
+      - key: ONESHOT_BASE_URL
+        value: https://api.1shot.link/v1
+      - key: AGENT_MNEMONIC
+        sync: false

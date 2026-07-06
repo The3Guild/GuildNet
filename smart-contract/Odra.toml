@@ -1,0 +1,8 @@
+[[contracts]]
+fqn = "guildnet::agent_registry::AgentRegistry"
+
+[[contracts]]
+fqn = "guildnet::agent_reputation::AgentReputation"
+
+[[contracts]]
+fqn = "guildnet::task_coordinator::TaskCoordinator"
