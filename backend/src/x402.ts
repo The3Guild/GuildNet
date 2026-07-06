@@ -113,40 +113,49 @@ function encodeAddress(value: string): Buffer {
 }
 
 /**
- * Compute the EIP-712 typed-data hash for a Casper TransferAuthorization.
+ * Compute the EIP-712 typed-data hash for a Casper x402 TransferWithAuthorization.
  *
- * This mirrors exactly what the CSPR.cloud facilitator verifies server-side.
+ * Uses the Casper-specific domain format (name, version, chain_name, contract_package_hash)
+ * matching the @make-software/casper-x402 package and CSPR.cloud facilitator.
  */
 export function buildEIP712Digest(
-  auth:    ExactCasperAuthorization,
-  tokenName:    string,
-  tokenVersion: string,
+  auth:             ExactCasperAuthorization,
+  tokenName:        string,
+  tokenVersion:     string,
+  network?:         string,
+  assetPackage?:    string,
 ): Buffer {
-  // ── Type hashes ─────────────────────────────────────────────────────────────
+  // ── Domain type: Casper EIP-712 (name, version, chain_name, contract_package_hash) ──
   const DOMAIN_TYPE_HASH = keccak256(
-    Buffer.from("EIP712Domain(string name,string version)")
-  );
-
-  const TRANSFER_AUTH_TYPE_HASH = keccak256(
     Buffer.from(
-      "TransferAuthorization(address from,address to,uint256 value," +
-      "uint256 validAfter,uint256 validBefore,bytes32 nonce)"
+      "EIP712Domain(string name,string version,string chain_name,bytes32 contract_package_hash)"
     )
   );
 
-  // ── Domain separator ─────────────────────────────────────────────────────────
+  // Normalise asset hex: strip "0x" prefix and pad to 32 bytes (64 hex chars)
+  const assetHex = (assetPackage ?? "").replace(/^0x/, "").padStart(64, "0");
+
   const domainSeparator = keccak256(
     Buffer.concat([
       DOMAIN_TYPE_HASH,
       keccak256(Buffer.from(tokenName)),
       keccak256(Buffer.from(tokenVersion)),
+      keccak256(Buffer.from(network ?? "")),
+      Buffer.from(assetHex, "hex"),
     ])
   );
 
-  // ── Message hash ─────────────────────────────────────────────────────────────
+  // ── Message type: TransferWithAuthorization (matching casper-x402) ────────────
+  const TYPE_HASH = keccak256(
+    Buffer.from(
+      "TransferWithAuthorization(address from,address to,uint256 value," +
+      "uint256 validAfter,uint256 validBefore,bytes32 nonce)"
+    )
+  );
+
   const messageHash = keccak256(
     Buffer.concat([
-      TRANSFER_AUTH_TYPE_HASH,
+      TYPE_HASH,
       encodeAddress(auth.from),
       encodeAddress(auth.to),
       encodeUint256(auth.value),
@@ -237,8 +246,8 @@ export async function settleX402Payment(
     nonce,
   };
 
-  // Sign EIP-712 digest
-  const digest    = buildEIP712Digest(authorization, config.x402.tokenName, config.x402.tokenVersion);
+  // Sign EIP-712 digest (Casper domain with chain_name + contract_package_hash)
+  const digest    = buildEIP712Digest(authorization, config.x402.tokenName, config.x402.tokenVersion, config.x402.network, config.x402.assetPackage);
   const signature = await privateKey.signAndAddAlgorithmBytes(digest);
   const sigHex    = Buffer.from(signature).toString("hex");
 

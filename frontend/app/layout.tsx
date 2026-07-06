@@ -16,6 +16,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en">
       <body className={inter.className}>
+        <div id="csprclick-ui-wrapper">
+          <div id="csprclick-ui"></div>
+        </div>
         <div className="bg-mesh" />
         <Providers>
           <AppShell>{children}</AppShell>

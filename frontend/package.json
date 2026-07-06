@@ -9,6 +9,7 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@make-software/csprclick-core-types": "^2.1.0",
     "clsx": "2.1.1",
     "lucide-react": "0.511.0",
     "next": "^16.2.7",

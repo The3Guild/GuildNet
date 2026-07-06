@@ -242,6 +242,273 @@ app.post("/build", limiter, async (req: Request, res: Response, next: NextFuncti
   } catch (err) { next(err); }
 });
 
+// ── x402 prepare / submit for CSPR.click signing ────────────────────────────
+
+interface ExactCasperAuthorization {
+  from:         string;
+  to:           string;
+  value:        string;
+  validAfter:   string;
+  validBefore:  string;
+  nonce:        string;
+}
+
+interface PaymentPayload {
+  x402Version: number;
+  resource:    { url: string };
+  accepted: {
+    scheme:            string;
+    network:           string;
+    asset:             string;
+    amount:            string;
+    payTo:             string;
+    maxTimeoutSeconds: number;
+  };
+  payload: {
+    signature:     string;
+    publicKey:     string;
+    authorization: ExactCasperAuthorization;
+  };
+}
+
+interface PaymentRequirements {
+  scheme:            string;
+  network:           string;
+  payTo:             string;
+  amount:            string;
+  asset:             string;
+  maxTimeoutSeconds: number;
+  extra: {
+    name:     string;
+    version:  string;
+    decimals: string;
+    symbol:   string;
+  };
+}
+
+interface SettleResult {
+  success:      boolean;
+  transaction:  string;
+  network:      string;
+  payer:        string;
+  errorReason?: string;
+  errorMessage?: string;
+}
+
+// In-memory store for pending x402 authorizations (keyed by nonce)
+const pendingAuths = new Map<string, ExactCasperAuthorization>();
+
+/**
+ * POST /x402/prepare
+ * Generates the EIP-712 typed data for the frontend to sign via CSPR.click.
+ * Returns SignTypedDataParams matching CSPR.click's expected format.
+ */
+app.post("/x402/prepare", limiter, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { payeeAccountHash, amountBaseUnits, resourceUrl } = req.body as {
+      payeeAccountHash: string;
+      amountBaseUnits?: string;
+      resourceUrl?: string;
+    };
+    if (!payeeAccountHash?.trim()) {
+      res.status(400).json({ error: "payeeAccountHash is required" }); return;
+    }
+
+    const fs = await import("fs/promises");
+    const { PrivateKey, KeyAlgorithm } = await import("casper-js-sdk").then(m => m.default ?? m);
+    const pemContent = await fs.readFile(config.coordinatorKeyPath, "utf-8");
+    const algo = config.coordinatorKeyAlgo === "secp256k1"
+      ? KeyAlgorithm.SECP256K1
+      : KeyAlgorithm.ED25519;
+    const privateKey = PrivateKey.fromPem(pemContent, algo);
+    const payerAccountHash = "00" + privateKey.publicKey.accountHash().toHex();
+
+    const now          = Math.floor(Date.now() / 1000);
+    const validAfter   = String(now - 60);
+    const validBefore  = String(now + config.x402.timeoutSeconds);
+    const nonce        = (await import("crypto")).randomBytes(32).toString("hex");
+    const amount       = amountBaseUnits ?? "500000000";
+
+    const authorization: ExactCasperAuthorization = {
+      from:        payerAccountHash,
+      to:          payeeAccountHash,
+      value:       amount,
+      validAfter,
+      validBefore,
+      nonce,
+    };
+
+    // Store pending authorization
+    pendingAuths.set(nonce, authorization);
+
+    const typedData = {
+      domain: {
+        name:                   config.x402.tokenName,
+        version:                config.x402.tokenVersion,
+        chain_name:             config.x402.network,
+        contract_package_hash:  config.x402.assetPackage,
+      },
+      types: {
+        EIP712Domain: [
+          { name: "name",                   type: "string" },
+          { name: "version",                type: "string" },
+          { name: "chain_name",             type: "string" },
+          { name: "contract_package_hash",  type: "bytes32" },
+        ],
+        TransferWithAuthorization: [
+          { name: "from",        type: "address" },
+          { name: "to",          type: "address" },
+          { name: "value",       type: "uint256" },
+          { name: "validAfter",  type: "uint256" },
+          { name: "validBefore", type: "uint256" },
+          { name: "nonce",       type: "bytes32" },
+        ],
+      },
+      primaryType: "TransferWithAuthorization",
+      message: {
+        from:        authorization.from,
+        to:          authorization.to,
+        value:       authorization.value,
+        validAfter:  authorization.validAfter,
+        validBefore: authorization.validBefore,
+        nonce:       authorization.nonce,
+      },
+    };
+
+    res.json({
+      signTypedDataParams: {
+        typedData,
+        options: {
+          domainTypes: [
+            { name: "name",                   type: "string" },
+            { name: "version",                type: "string" },
+            { name: "chain_name",             type: "string" },
+            { name: "contract_package_hash",  type: "bytes32" },
+          ],
+          returnHashArtifacts: true,
+        },
+      },
+      authorization,
+      resourceUrl: resourceUrl ?? `https://guildnet.io/agents/pay`,
+    });
+  } catch (err) { next(err); }
+});
+
+/**
+ * POST /x402/submit
+ * Takes a CSPR.click-signed payload, submits to CSPR.cloud facilitator.
+ * Body: { authorization, signature, publicKey, resourceUrl }
+ */
+app.post("/x402/submit", limiter, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { authorization, signature, publicKey: signerPublicKey, resourceUrl } = req.body as {
+      authorization: ExactCasperAuthorization;
+      signature:     string;
+      publicKey:     string;
+      resourceUrl?:  string;
+    };
+
+    if (!authorization?.nonce || !signature || !signerPublicKey) {
+      res.status(400).json({ error: "authorization, signature, and publicKey are required" }); return;
+    }
+
+    // Verify the authorization was prepared by us
+    const pending = pendingAuths.get(authorization.nonce);
+    if (!pending) {
+      res.status(400).json({ error: "Unknown authorization nonce — prepare a payment first" }); return;
+    }
+    pendingAuths.delete(authorization.nonce);
+
+    const paymentPayload: PaymentPayload = {
+      x402Version: 2,
+      resource:    { url: resourceUrl ?? `https://guildnet.io/agents/pay` },
+      accepted: {
+        scheme:            "exact",
+        network:           config.x402.network,
+        asset:             config.x402.assetPackage,
+        amount:            authorization.value,
+        payTo:             authorization.to,
+        maxTimeoutSeconds: config.x402.timeoutSeconds,
+      },
+      payload: {
+        signature,
+        publicKey: signerPublicKey,
+        authorization,
+      },
+    };
+
+    const paymentRequirements: PaymentRequirements = {
+      scheme:            "exact",
+      network:           config.x402.network,
+      payTo:             authorization.to,
+      amount:            authorization.value,
+      asset:             config.x402.assetPackage,
+      maxTimeoutSeconds: config.x402.timeoutSeconds,
+      extra: {
+        name:     config.x402.tokenName,
+        version:  config.x402.tokenVersion,
+        decimals: String(config.x402.tokenDecimals),
+        symbol:   "CSPR",
+      },
+    };
+
+    // POST to facilitator /verify
+    const verifyResult = await fetch(`${config.x402FacilitatorUrl}/verify`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": config.csprCloudAuthToken,
+      },
+      body: JSON.stringify({ paymentPayload, paymentRequirements }),
+    });
+
+    if (!verifyResult.ok) {
+      const text = await verifyResult.text().catch(() => "");
+      res.status(502).json({ error: `Facilitator /verify failed: ${text}` }); return;
+    }
+
+    const verifyData = await verifyResult.json() as { isValid: boolean; invalidReason?: string; invalidMessage?: string };
+    if (!verifyData.isValid) {
+      res.status(400).json({
+        error: `Verification rejected: ${verifyData.invalidReason} — ${verifyData.invalidMessage}`
+      }); return;
+    }
+
+    // POST to facilitator /settle
+    const settleResult = await fetch(`${config.x402FacilitatorUrl}/settle`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": config.csprCloudAuthToken,
+      },
+      body: JSON.stringify({ paymentPayload, paymentRequirements }),
+    });
+
+    if (!settleResult.ok) {
+      const text = await settleResult.text().catch(() => "");
+      res.status(502).json({ error: `Facilitator /settle failed: ${text}` }); return;
+    }
+
+    const settleData = await settleResult.json() as SettleResult;
+    if (!settleData.success) {
+      res.status(400).json({
+        error: `Settlement failed: ${settleData.errorReason} — ${settleData.errorMessage}`
+      }); return;
+    }
+
+    console.log(`[x402] ✓ CSPR.click-signed payment settled. Deploy: ${settleData.transaction}`);
+    console.log(`[x402] Explorer: https://testnet.cspr.live/deploy/${settleData.transaction}`);
+
+    res.json({
+      success: true,
+      transactionHash: settleData.transaction,
+      explorerLink: `https://testnet.cspr.live/deploy/${settleData.transaction}`,
+      network: settleData.network,
+      payer: settleData.payer,
+    });
+  } catch (err) { next(err); }
+});
+
 // ── Error handler ─────────────────────────────────────────────────────────────
 app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
   console.error("[Server error]", err.message);
