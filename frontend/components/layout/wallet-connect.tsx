@@ -1,19 +1,38 @@
 "use client";
 
-import { Wallet, Copy, Check, ExternalLink, LogOut } from "lucide-react";
+import { Wallet, Copy, Check, ExternalLink, LogOut, AlertCircle, Loader2 } from "lucide-react";
 import { useWallet } from "@/hooks/use-wallet";
 import { shortenAddress } from "@/lib/utils";
 import { CASPER_EXPLORER } from "@/lib/constants";
 
 export function WalletConnect() {
-  const { connected, address, connecting, connect, disconnect, copyAddress, copied } = useWallet();
+  const { connected, address, connecting, sdkReady, error, connect, disconnect, copyAddress, copied } = useWallet();
+
+  if (error) {
+    return (
+      <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-red-500/30 bg-red-500/10">
+        <AlertCircle className="w-3.5 h-3.5 text-red-400" />
+        <span className="text-xs text-red-400">{error}</span>
+      </div>
+    );
+  }
+
+  if (!sdkReady) {
+    return (
+      <button disabled
+        className="btn-primary flex items-center gap-2 px-4 py-2 text-sm opacity-60 cursor-not-allowed">
+        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+        Loading wallet...
+      </button>
+    );
+  }
 
   if (!connected) {
     return (
       <button onClick={connect} disabled={connecting}
         className="btn-primary flex items-center gap-2 px-4 py-2 text-sm">
         <Wallet className="w-3.5 h-3.5" />
-        {connecting ? "Connecting…" : "Connect Wallet"}
+        {connecting ? "Connecting..." : "Connect Wallet"}
       </button>
     );
   }
