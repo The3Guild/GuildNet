@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
 import type { SignTypedDataParams, SignTypedDataResult } from "@make-software/csprclick-core-types";
 import { useClickRef } from "@/contexts/click-context";
 
@@ -21,18 +21,34 @@ export function useWallet(): WalletState {
   const { publicKey, clickRef, ready, error: sdkError, signTypedData: clickSignTypedData } = useClickRef();
   const [connecting, setConnecting] = useState(false);
   const [copied, setCopied] = useState(false);
+  const connectTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
+
+  useEffect(() => {
+    return () => {
+      if (connectTimeoutRef.current) clearTimeout(connectTimeoutRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     setConnecting(false);
+    if (connectTimeoutRef.current) {
+      clearTimeout(connectTimeoutRef.current);
+      connectTimeoutRef.current = undefined;
+    }
   }, [publicKey, ready]);
 
   const connect = useCallback(() => {
     if (!clickRef) return;
     setConnecting(true);
+    connectTimeoutRef.current = setTimeout(() => setConnecting(false), 30000);
     try {
       clickRef.signIn();
     } catch {
       setConnecting(false);
+      if (connectTimeoutRef.current) {
+        clearTimeout(connectTimeoutRef.current);
+        connectTimeoutRef.current = undefined;
+      }
     }
   }, [clickRef]);
 

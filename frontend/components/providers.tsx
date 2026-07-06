@@ -1,7 +1,12 @@
 "use client";
 
-import { ClickProvider } from "@/contexts/click-context";
+import dynamic from "next/dynamic";
+
+const WalletProvider = dynamic(
+  () => import("@/components/wallet-provider"),
+  { ssr: false }
+);
 
 export function Providers({ children }: { children: React.ReactNode }) {
-  return <ClickProvider>{children}</ClickProvider>;
+  return <WalletProvider>{children}</WalletProvider>;
 }
