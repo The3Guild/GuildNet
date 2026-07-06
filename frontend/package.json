@@ -18,8 +18,11 @@
     "react-country-flag": "^3.1.0",
     "react-dom": "^19.2.7",
     "react-modal": "^3.16.3",
-    "styled-components": "^5.3.11",
+    "styled-components": "^6.4.3",
     "tailwind-merge": "2.4.0"
+  },
+  "overrides": {
+    "styled-components": "^6.4.3"
   },
   "devDependencies": {
     "@types/node": "20.14.9",
