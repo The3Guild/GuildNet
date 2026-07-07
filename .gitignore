@@ -6,4 +6,10 @@ dist/
 *.log
 .DS_Store
 smart-contract/target/
+smart-contract/.env
+smart-contract/keys/*.pem
+smart-contract/keys/*.key
 backend/.env
+backend/.env.example
+*.pem
+*.key
