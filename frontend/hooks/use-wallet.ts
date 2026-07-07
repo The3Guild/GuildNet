@@ -21,7 +21,7 @@ export function useWallet(): WalletState {
   const { publicKey, clickRef, ready, error: sdkError, signTypedData: clickSignTypedData } = useClickRef();
   const [connecting, setConnecting] = useState(false);
   const [copied, setCopied] = useState(false);
-  const connectTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
+  const connectTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   useEffect(() => {
     return () => {

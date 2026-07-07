@@ -12,6 +12,7 @@
  *                     → returns real Casper deploy hash
  */
 
+import crypto from "crypto";
 import { config } from "./config";
 import { csproCloudGet } from "./chain";
 import { settleX402Payment } from "./x402";
@@ -418,10 +419,7 @@ export async function runCoordinator(
   }
 
   // ── Complete task — store result hash on-chain ─────────────────────────────
-  const resultHash = require("crypto")
-    .createHash("sha256")
-    .update(result.report)
-    .digest("hex");
+  const resultHash = crypto.createHash("sha256").update(result.report).digest("hex");
 
   const completeHash = await callContractEntry("complete_task", {
     task_id:     TASK_ID,

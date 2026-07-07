@@ -44,7 +44,7 @@ export function ClickProvider({ children }: ClickProviderProps) {
   const [clickRef, setClickRef] = useState<ICSPRClickSDK | undefined>();
   const [error, setError] = useState<string | null>(null);
   const [sdkLoaded, setSdkLoaded] = useState(false);
-  const timeoutRef = useRef<ReturnType<typeof setTimeout>>();
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   useEffect(() => {
     const checkActiveAccount = async (ref: ICSPRClickSDK) => {
