@@ -17,6 +17,61 @@ import { csproCloudGet } from "./chain";
 import { settleX402Payment } from "./x402";
 import { veniceChat } from "./agents/venice";
 
+// ── Lazy SDK import ───────────────────────────────────────────────────────────
+
+let _sdk: any = null;
+
+async function getSdk() {
+  if (!_sdk) {
+    const casperSdk = await import("casper-js-sdk");
+    _sdk = casperSdk.default ?? casperSdk;
+  }
+  return _sdk;
+}
+
+// ── Query a named key from the TaskCoordinator contract ─────────────────────
+
+async function queryContractVar(varName: string): Promise<bigint | undefined> {
+  const contractHash = config.contracts.taskCoordinator.replace("hash-", "");
+
+  // Attempt 1 — direct Casper RPC via queryLatestGlobalState
+  try {
+    const sdk = await getSdk();
+    const { RpcClient, HttpHandler } = sdk;
+    const rpc = new RpcClient(new HttpHandler(config.casperNodeRpc));
+    const result = await rpc.queryLatestGlobalState(
+      `hash-${contractHash}`,
+      [varName],
+    );
+    const clv = result.storedValue?.clValue;
+    if (clv?.ui64) {
+      return BigInt(clv.ui64.toString());
+    }
+  } catch (err) {
+    console.warn(`[Coordinator] RPC queryContractVar failed: ${err}`);
+  }
+
+  // Attempt 2 — CSPR.cloud named-keys API (reliable fallback)
+  try {
+    const data = await csproCloudGet(
+      `/contracts/${contractHash}/named-keys`
+    ) as { data?: Array<{ name: string; value: string }> };
+    for (const entry of (data.data ?? [])) {
+      if (entry.name === varName) {
+        const parsed = JSON.parse(entry.value ?? "{}");
+        const raw = parsed.parsed ?? parsed.parse ?? parsed.value;
+        if (raw !== undefined) {
+          return BigInt(String(raw));
+        }
+      }
+    }
+  } catch (err) {
+    console.warn(`[Coordinator] CSPR.cloud queryContractVar failed: ${err}`);
+  }
+
+  return undefined;
+}
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export interface TaskResult {
@@ -82,9 +137,9 @@ async function findAgents(capability: string): Promise<AgentRecord[]> {
 async function callContractEntry(
   entryPoint: string,
   namedArgs:  Record<string, string | bigint | boolean>,
+  paymentMotes?: bigint,
 ): Promise<string> {
-  const casperSdk = await import("casper-js-sdk");
-  const sdk = casperSdk.default ?? casperSdk;
+  const sdk = await getSdk();
   const { KeyAlgorithm, PrivateKey, RpcClient, HttpHandler, Hash, InitiatorAddr } = sdk;
 
   const fsPromises = await import("fs/promises");
@@ -109,7 +164,7 @@ async function callContractEntry(
     TransactionScheduling, TransactionEntryPoint, TransactionEntryPointEnum,
     TransactionTarget, StoredTarget, TransactionInvocationTarget,
     ByPackageHashInvocationTarget, TransactionRuntime,
-    PricingMode, FixedMode, Timestamp, Duration,
+    PricingMode, FixedMode, PaymentLimitedMode, Timestamp, Duration,
   } = sdk;
 
   const contractHash = config.contracts.taskCoordinator.replace("hash-", "");
@@ -128,12 +183,22 @@ async function callContractEntry(
 
   const transactionTarget = new TransactionTarget(undefined, storedTarget, undefined);
 
-  // Build pricing mode: fixed
-  const fixedMode = new FixedMode();
-  fixedMode.gasPriceTolerance = 1;
-  fixedMode.additionalComputationFactor = 0;
-  const pricingMode = new PricingMode();
-  pricingMode.fixed = fixedMode;
+  // Build pricing mode: payment-limited (for payable entry points) or fixed
+  let pricingMode: InstanceType<typeof PricingMode>;
+  if (paymentMotes !== undefined) {
+    const limited = new PaymentLimitedMode();
+    limited.gasPriceTolerance = 1;
+    limited.paymentAmount = Number(paymentMotes);
+    limited.standardPayment = true;
+    pricingMode = new PricingMode();
+    pricingMode.paymentLimited = limited;
+  } else {
+    const fixed = new FixedMode();
+    fixed.gasPriceTolerance = 1;
+    fixed.additionalComputationFactor = 0;
+    pricingMode = new PricingMode();
+    pricingMode.fixed = fixed;
+  }
 
   const payload = TransactionV1Payload.build({
     initiatorAddr: new InitiatorAddr(key.publicKey),
@@ -249,12 +314,16 @@ export async function runCoordinator(
     casperExplorerLinks: [],
   };
 
+  // ── Query real task ID from contract state ────────────────────────────────
+  const TASK_ID = (await queryContractVar("task_count")) ?? 0n;
+  console.log(`[Coordinator] Real TASK_ID = ${TASK_ID}`);
+
   // ── Create task on Casper ──────────────────────────────────────────────────
   console.log(`[Coordinator] Creating task on Casper Testnet…`);
   const createHash = await callContractEntry("create_task", {
     description: taskDescription,
-  });
-  result.taskId = createHash;
+  }, config.taskBudgetMotes);
+  result.taskId = String(TASK_ID);
   result.casperExplorerLinks.push(`https://testnet.cspr.live/deploy/${createHash}`);
 
   // ── Discover agents ────────────────────────────────────────────────────────
@@ -268,8 +337,6 @@ export async function runCoordinator(
       console.warn(`[Coordinator] No ${cap} agent on-chain — skipping`);
     }
   }));
-
-  const TASK_ID = 0n; // first task; TODO: parse TaskCreated event for real id
 
   // ── Wave 1: independent agents (parallel Venice, sequential on-chain) ──────
   const dependents = ["risk", "audit", "report"];

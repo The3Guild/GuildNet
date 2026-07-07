@@ -42,6 +42,9 @@ export const config = {
     timeoutSeconds:  Number(optional("X402_TIMEOUT_SECONDS", "300")),
   },
 
+  // ── Task creation ─────────────────────────────────────────────────────────────
+  taskBudgetMotes: BigInt(optional("TASK_BUDGET_MOTES", "2500000000")),
+
   // ── Venice AI ────────────────────────────────────────────────────────────────
   veniceApiKey:  required("VENICE_API_KEY"),
   veniceBaseUrl: optional("VENICE_BASE_URL", "https://api.venice.ai/api/v1"),
