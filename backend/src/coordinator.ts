@@ -163,26 +163,12 @@ async function findAgents(capability: string): Promise<AgentRecord[]> {
   }
 }
 
-// ── On-chain contract calls (casper-js-sdk v5) ────────────────────────────────
+// ── Build runtime args helper ─────────────────────────────────────────────────
 
-export async function callContractEntry(
-  entryPoint: string,
-  namedArgs:  Record<string, string | bigint | boolean | { type: "U512"; value: string }>,
-  paymentMotes?: bigint,
-  contractOverride?: string,
-): Promise<string> {
-  const sdk = await getSdk();
-  const { KeyAlgorithm, PrivateKey, RpcClient, HttpHandler, Hash, InitiatorAddr } = sdk;
-
-  const fsPromises = await import("fs/promises");
-  const pem  = await fsPromises.readFile(config.coordinatorKeyPath, "utf-8");
-  const algo = config.coordinatorKeyAlgo === "secp256k1"
-    ? KeyAlgorithm.SECP256K1
-    : KeyAlgorithm.ED25519;
-  const key  = PrivateKey.fromPem(pem, algo);
-  const rpc  = new RpcClient(new HttpHandler(config.casperNodeRpc));
-
-  // Build runtime args
+function buildArgs(
+  sdk: any,
+  namedArgs: Record<string, string | bigint | boolean | { type: "U512"; value: string }>,
+): any {
   const { Args, CLValue } = sdk;
   const args = Args.fromMap({});
   for (const [k, v] of Object.entries(namedArgs)) {
@@ -192,6 +178,20 @@ export async function callContractEntry(
     else if (typeof v === "object" && "type" in v && v.type === "U512")
       args.insert(k, CLValue.newCLUInt512(v.value));
   }
+  return args;
+}
+
+// ── Build an unsigned deploy JSON for wallet signing ────────────────────────
+
+export async function buildDeployJSON(
+  entryPoint: string,
+  namedArgs:  Record<string, string | bigint | boolean | { type: "U512"; value: string }>,
+  contractHash: string,
+  initiatorPublicKeyHex: string,
+  paymentMotes?: bigint,
+): Promise<object> {
+  const sdk = await getSdk();
+  const { PublicKey, Hash, InitiatorAddr } = sdk;
 
   const {
     TransactionV1Payload, TransactionV1, Transaction,
@@ -201,11 +201,11 @@ export async function callContractEntry(
     PricingMode, FixedMode, PaymentLimitedMode, Timestamp, Duration,
   } = sdk;
 
-  const contractHash = (contractOverride ?? config.contracts.taskCoordinator).replace("hash-", "");
+  const args = buildArgs(sdk, namedArgs);
+  const cleanHash = contractHash.replace("hash-", "");
 
-  // Build transaction target: stored contract call by package hash
   const byPackageHash = new ByPackageHashInvocationTarget();
-  byPackageHash.addr = Hash.fromHex(contractHash);
+  byPackageHash.addr = Hash.fromHex(cleanHash);
   byPackageHash.protocolVersionMajor = null;
 
   const invocationTarget = new TransactionInvocationTarget();
@@ -217,7 +217,6 @@ export async function callContractEntry(
 
   const transactionTarget = new TransactionTarget(undefined, storedTarget, undefined);
 
-  // Build pricing mode: payment-limited (for payable entry points) or fixed
   let pricingMode: InstanceType<typeof PricingMode>;
   if (paymentMotes !== undefined) {
     const limited = new PaymentLimitedMode();
@@ -234,8 +233,10 @@ export async function callContractEntry(
     pricingMode.fixed = fixed;
   }
 
+  const initiatorKey = PublicKey.fromHex(initiatorPublicKeyHex);
+
   const payload = TransactionV1Payload.build({
-    initiatorAddr: new InitiatorAddr(key.publicKey),
+    initiatorAddr: new InitiatorAddr(initiatorKey),
     args,
     ttl: new Duration(30 * 60 * 1000),
     chainName: config.casperChainName,
@@ -247,8 +248,35 @@ export async function callContractEntry(
   });
 
   const txV1 = TransactionV1.makeTransactionV1(payload);
-  txV1.sign(key);
   const tx = Transaction.fromTransactionV1(txV1);
+  return tx.toJSON();
+}
+
+// ── On-chain contract calls (casper-js-sdk v5) ────────────────────────────────
+
+export async function callContractEntry(
+  entryPoint: string,
+  namedArgs:  Record<string, string | bigint | boolean | { type: "U512"; value: string }>,
+  paymentMotes?: bigint,
+  contractOverride?: string,
+): Promise<string> {
+  const sdk = await getSdk();
+  const { KeyAlgorithm, PrivateKey, RpcClient, HttpHandler } = sdk;
+
+  const fsPromises = await import("fs/promises");
+  const pem  = await fsPromises.readFile(config.coordinatorKeyPath, "utf-8");
+  const algo = config.coordinatorKeyAlgo === "secp256k1"
+    ? KeyAlgorithm.SECP256K1
+    : KeyAlgorithm.ED25519;
+  const key  = PrivateKey.fromPem(pem, algo);
+  const rpc  = new RpcClient(new HttpHandler(config.casperNodeRpc));
+
+  const contractHash = (contractOverride ?? config.contracts.taskCoordinator).replace("hash-", "");
+  const deployJSON = await buildDeployJSON(entryPoint, namedArgs, contractHash, key.publicKey.toHex(), paymentMotes);
+
+  const { Transaction } = sdk;
+  const tx = Transaction.fromJSON(deployJSON);
+  tx.sign(key);
 
   const result = await rpc.putTransaction(tx);
   const hash   = result.transactionHash.toHex();

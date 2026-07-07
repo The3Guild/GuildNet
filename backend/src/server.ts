@@ -3,7 +3,7 @@ import express, { type Request, type Response, type NextFunction } from "express
 import cors from "cors";
 import rateLimit from "express-rate-limit";
 import { config } from "./config";
-import { runCoordinator, findAllAgents, queryContractVar, callContractEntry } from "./coordinator";
+import { runCoordinator, findAllAgents, queryContractVar, buildDeployJSON } from "./coordinator";
 import { runAgent, type Capability } from "./agentRunner";
 import { buildProject } from "./builder";
 
@@ -140,17 +140,14 @@ app.get("/design-preview/:taskId", (req: Request, res: Response) => {
 });
 
 /**
- * POST /agent/register
- * Register or deactivate an agent on the AgentRegistry contract.
- * Body: { mode: "register"|"deactivate", wallet, endpoint, capability, price }
+ * POST /agent/register/prepare
+ * Builds an unsigned deploy JSON for registering or deactivating an agent.
+ * The frontend signs + submits it via CSPR.click's send() method.
  *
- * NOTE: The Casper contract's register() entry point uses the caller's address
- * (self.env().caller()) as the agent identity. Currently the backend signs
- * with the coordinator key. For production, the user's CSPR.click wallet
- * should sign the deploy — that will be implemented in a future iteration
- * using a prepare/submit pattern similar to /x402/prepare + /x402/submit.
+ * Body: { mode, wallet, endpoint, capability, price }
+ * Returns: { deployJSON, contractHash, entryPoint, explorerUrl }
  */
-app.post("/agent/register", limiter, async (req: Request, res: Response, next: NextFunction) => {
+app.post("/agent/register/prepare", limiter, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { mode, wallet, endpoint, capability, price } = req.body as {
       mode: "register" | "deactivate";
@@ -162,26 +159,16 @@ app.post("/agent/register", limiter, async (req: Request, res: Response, next: N
 
     if (!wallet?.trim()) { res.status(400).json({ error: "wallet is required" }); return; }
 
-    // Check coordinator key exists before attempting chain call
-    try {
-      const fs = await import("fs/promises");
-      await fs.access(config.coordinatorKeyPath);
-    } catch {
-      res.status(400).json({
-        error: `Coordinator key not found at ${config.coordinatorKeyPath}. Set COORDINATOR_SECRET_KEY_PATH in your .env to a valid Ed25519 PEM file.`
-      });
-      return;
-    }
-
     const agentContractHash = config.contracts.agentRegistry;
 
     if (mode === "deactivate") {
-      const deployHash = await callContractEntry(
-        "deactivate", {},
-        undefined,
-        agentContractHash,
-      );
-      res.json({ deployHash, mode: "deactivate" });
+      const deployJSON = await buildDeployJSON("deactivate", {}, agentContractHash, wallet);
+      res.json({
+        deployJSON,
+        entryPoint: "deactivate",
+        contractHash: agentContractHash,
+        explorerUrl: `https://testnet.cspr.live/contract/${agentContractHash}`,
+      });
       return;
     }
 
@@ -192,14 +179,19 @@ app.post("/agent/register", limiter, async (req: Request, res: Response, next: N
       ? { type: "U512" as const, value: String(Math.round(parseFloat(price) * 1e9)) }
       : { type: "U512" as const, value: "500000000" };
 
-    const deployHash = await callContractEntry(
+    const deployJSON = await buildDeployJSON(
       "register",
       { endpoint, capability, price_per_task: priceMotes },
-      undefined,
       agentContractHash,
+      wallet,
     );
 
-    res.json({ deployHash, mode: "register" });
+    res.json({
+      deployJSON,
+      entryPoint: "register",
+      contractHash: agentContractHash,
+      explorerUrl: `https://testnet.cspr.live/contract/${agentContractHash}`,
+    });
   } catch (err) { next(err); }
 });
 

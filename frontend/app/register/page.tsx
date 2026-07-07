@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Bot, ExternalLink, CheckCircle, AlertCircle, Loader2, ShieldCheck, ShieldX, Trash2 } from "lucide-react";
 import { useWallet } from "@/hooks/use-wallet";
+import { useClickRef } from "@/contexts/click-context";
 import { CONTRACTS, CAPABILITIES, BACKEND_URL, CASPER_EXPLORER } from "@/lib/constants";
 
 type Mode = "register" | "deactivate";
@@ -22,6 +23,7 @@ export default function RegisterPage() {
   const [verified,   setVerified]   = useState<{ ok: boolean; reason?: string } | null>(null);
 
   const { connected, address, connect } = useWallet();
+  const { clickRef } = useClickRef();
   const router = useRouter();
 
   async function verifyEndpoint() {
@@ -46,7 +48,8 @@ export default function RegisterPage() {
 
     setLoading(true); setError(""); setDeployHash(""); setConfirmed(false);
     try {
-      const res = await fetch(`${BACKEND_URL}/agent/register`, {
+      // 1. Backend builds the unsigned deploy JSON (initiator = user's wallet)
+      const prepRes = await fetch(`${BACKEND_URL}/agent/register/prepare`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -57,12 +60,22 @@ export default function RegisterPage() {
           price,
         }),
       });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: res.statusText }));
-        throw new Error(err.error ?? res.statusText);
+      if (!prepRes.ok) {
+        const err = await prepRes.json().catch(() => ({ error: prepRes.statusText }));
+        throw new Error(err.error ?? prepRes.statusText);
       }
-      const data = await res.json();
-      setDeployHash(data.deployHash);
+      const { deployJSON } = await prepRes.json();
+
+      // 2. User's CSPR.click wallet signs and submits the deploy
+      if (!clickRef) throw new Error("CSPR.click not connected — reconnect your wallet");
+      const result = await clickRef.send(deployJSON, address, true);
+      if (!result) throw new Error("No response from wallet — try again");
+      if (result.cancelled) throw new Error("Signing cancelled in wallet");
+      if (result.error) throw new Error(result.error);
+
+      const txHash = result.deployHash ?? result.transactionHash;
+      if (!txHash) throw new Error("Deploy submitted but no hash returned");
+      setDeployHash(txHash);
       setConfirmed(true);
       if (mode !== "deactivate") {
         setTimeout(() => router.push("/agents"), 1500);
