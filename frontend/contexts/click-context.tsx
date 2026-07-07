@@ -2,12 +2,8 @@
 
 import { createContext, useContext, useEffect, useState, useCallback, useRef } from "react";
 import type { ReactNode } from "react";
-import {
-  CONTENT_MODE,
-} from "@make-software/csprclick-core-types";
 import type {
   AccountType,
-  CsprClickInitOptions,
   ICSPRClickSDK,
   SignTypedDataParams,
   SignTypedDataResult,
@@ -17,7 +13,7 @@ import type { ClickUIOptions } from "@make-software/csprclick-core-types/clickui
 declare global {
   interface Window {
     clickUIOptions: ClickUIOptions;
-    clickSDKOptions: CsprClickInitOptions;
+    clickSDKOptions: Record<string, unknown>;
     csprclick?: ICSPRClickSDK;
   }
 }
@@ -80,6 +76,7 @@ export function ClickProvider({ children }: ClickProviderProps) {
       ref.on("csprclick:switched_account", handleAccountChanged);
       ref.on("csprclick:unsolicited_account_change", handleAccountChanged);
       ref.on("csprclick:signed_out", () => setConnectedAccount(undefined));
+      ref.on("csprclick:disconnected", () => setConnectedAccount(undefined));
       checkActiveAccount(ref);
     };
 

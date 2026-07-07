@@ -2,9 +2,8 @@
 
 import {
   CONTENT_MODE,
+  WALLET_KEYS,
 } from "@make-software/csprclick-core-types";
-import type { CsprClickInitOptions } from "@make-software/csprclick-core-types";
-import type { ClickUIOptions } from "@make-software/csprclick-core-types/clickui";
 import { ClickProvider } from "@/contexts/click-context";
 import type { ReactNode } from "react";
 
@@ -16,7 +15,8 @@ if (typeof window !== "undefined") {
       show1ClickModal: true,
       showTopBar: false,
       defaultTheme: "dark",
-    } as ClickUIOptions;
+      accountMenuItems: [],
+    };
   }
 
   if (!window.clickSDKOptions) {
@@ -24,14 +24,15 @@ if (typeof window !== "undefined") {
       appName: "GuildNet",
       appId: "csprclick-template",
       providers: [
-        "casper-wallet",
-        "ledger",
-        "metamask-snap",
-        "csprclick-w3a-google",
-        "csprclick-w3a-apple",
+        WALLET_KEYS.CASPER_WALLET,
+        WALLET_KEYS.LEDGER,
+        WALLET_KEYS.METAMASK_SNAP,
+        WALLET_KEYS.W3A_GOOGLE,
+        WALLET_KEYS.W3A_APPLE,
       ],
       contentMode: CONTENT_MODE.IFRAME,
-    } as CsprClickInitOptions;
+      chainName: "casper-test",
+    };
   }
 }
 
