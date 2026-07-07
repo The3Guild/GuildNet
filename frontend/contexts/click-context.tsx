@@ -2,12 +2,25 @@
 
 import { createContext, useContext, useEffect, useState, useCallback, useRef } from "react";
 import type { ReactNode } from "react";
+import {
+  CONTENT_MODE,
+} from "@make-software/csprclick-core-types";
 import type {
   AccountType,
+  CsprClickInitOptions,
   ICSPRClickSDK,
   SignTypedDataParams,
   SignTypedDataResult,
 } from "@make-software/csprclick-core-types";
+import type { ClickUIOptions } from "@make-software/csprclick-core-types/clickui";
+
+declare global {
+  interface Window {
+    clickUIOptions: ClickUIOptions;
+    clickSDKOptions: CsprClickInitOptions;
+    csprclick?: ICSPRClickSDK;
+  }
+}
 
 interface ClickContextState {
   publicKey: string | undefined;
@@ -18,77 +31,91 @@ interface ClickContextState {
   signTypedData: (params: SignTypedDataParams) => Promise<SignTypedDataResult | undefined>;
 }
 
+type AccountChangedEvent = {
+  account?: AccountType;
+};
+
 const ClickContext = createContext<ClickContextState | undefined>(undefined);
 
 interface ClickProviderProps {
   children: ReactNode;
-  sdk: ICSPRClickSDK | undefined;
 }
 
-export function ClickProvider({ children, sdk }: ClickProviderProps) {
-  const [connectedAccount, setConnectedAccount] = useState<AccountType | undefined>();
-  const [ready, setReady] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+const CSPR_CLICK_SCRIPT_ID = "csprclick-client";
 
+export function ClickProvider({ children }: ClickProviderProps) {
+  const [connectedAccount, setConnectedAccount] = useState<AccountType | undefined>();
+  const [clickRef, setClickRef] = useState<ICSPRClickSDK | undefined>();
+  const [error, setError] = useState<string | null>(null);
+  const [sdkLoaded, setSdkLoaded] = useState(false);
   const timeoutRef = useRef<ReturnType<typeof setTimeout>>();
 
   useEffect(() => {
+    const checkActiveAccount = async (ref: ICSPRClickSDK) => {
+      try {
+        const account = await ref.getActiveAccountAsync({
+          withBalance: true,
+        });
+        setConnectedAccount(account?.public_key ? account : undefined);
+      } catch {
+        setConnectedAccount(undefined);
+      }
+    };
+
+    const handleAccountChanged = (event: AccountChangedEvent) => {
+      setConnectedAccount(event.account?.public_key ? event.account : undefined);
+    };
+
+    const handleSdkLoaded = () => {
+      const ref = window.csprclick;
+      if (!ref) return;
+      setClickRef(ref);
+      setSdkLoaded(true);
+      setError(null);
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+        timeoutRef.current = undefined;
+      }
+      ref.on("csprclick:signed_in", handleAccountChanged);
+      ref.on("csprclick:switched_account", handleAccountChanged);
+      ref.on("csprclick:unsolicited_account_change", handleAccountChanged);
+      ref.on("csprclick:signed_out", () => setConnectedAccount(undefined));
+      checkActiveAccount(ref);
+    };
+
+    window.addEventListener("csprclick:loaded", handleSdkLoaded);
+
+    if (window.csprclick) {
+      handleSdkLoaded();
+    }
+
+    if (!document.querySelector(`script#${CSPR_CLICK_SCRIPT_ID}`)) {
+      const script = document.createElement("script");
+      script.src = "https://cdn.cspr.click/ui/v2.1.0/csprclick-client-2.1.0.js";
+      script.id = CSPR_CLICK_SCRIPT_ID;
+      script.async = true;
+      document.head.appendChild(script);
+    }
+
+    timeoutRef.current = setTimeout(() => {
+      if (!window.csprclick) {
+        setError("CSPR.click SDK failed to load — check your network or ad-blocker.");
+      }
+    }, 30000);
+
     return () => {
+      window.removeEventListener("csprclick:loaded", handleSdkLoaded);
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
     };
   }, []);
 
-  useEffect(() => {
-    if (!sdk) {
-      if (!timeoutRef.current) {
-        timeoutRef.current = setTimeout(() => {
-          setError("CSPR.click SDK failed to load");
-        }, 15000);
-      }
-      return;
-    }
-
-    if (timeoutRef.current) {
-      clearTimeout(timeoutRef.current);
-      timeoutRef.current = undefined;
-    }
-
-    setReady(true);
-    setError(null);
-
-    if (sdk.currentAccount?.public_key) {
-      setConnectedAccount(sdk.currentAccount);
-    }
-
-    const handleAccountChanged = (account?: AccountType) => {
-      setConnectedAccount(account?.public_key ? account : undefined);
-    };
-
-    const onSignedIn = (event: { account?: AccountType }) => handleAccountChanged(event.account);
-    const onSwitchedAccount = (event: { account?: AccountType }) => handleAccountChanged(event.account);
-    const onUnsolicitedChange = (event: { account?: AccountType }) => handleAccountChanged(event.account);
-    const onSignedOut = () => setConnectedAccount(undefined);
-
-    sdk.on("csprclick:signed_in", onSignedIn);
-    sdk.on("csprclick:switched_account", onSwitchedAccount);
-    sdk.on("csprclick:unsolicited_account_change", onUnsolicitedChange);
-    sdk.on("csprclick:signed_out", onSignedOut);
-
-    return () => {
-      sdk.removeListener("csprclick:signed_in", onSignedIn);
-      sdk.removeListener("csprclick:switched_account", onSwitchedAccount);
-      sdk.removeListener("csprclick:unsolicited_account_change", onUnsolicitedChange);
-      sdk.removeListener("csprclick:signed_out", onSignedOut);
-    };
-  }, [sdk]);
-
   const signTypedData = useCallback(
     async (params: SignTypedDataParams): Promise<SignTypedDataResult | undefined> => {
       const pk = connectedAccount?.public_key;
-      if (!sdk || !pk) return undefined;
-      return sdk.signTypedData(params, pk);
+      if (!clickRef || !pk) return undefined;
+      return clickRef.signTypedData(params, pk);
     },
-    [sdk, connectedAccount]
+    [clickRef, connectedAccount]
   );
 
   return (
@@ -96,8 +123,8 @@ export function ClickProvider({ children, sdk }: ClickProviderProps) {
       value={{
         publicKey: connectedAccount?.public_key,
         provider: connectedAccount?.provider,
-        clickRef: sdk,
-        ready,
+        clickRef,
+        ready: sdkLoaded,
         error,
         signTypedData,
       }}
