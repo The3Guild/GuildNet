@@ -39,6 +39,48 @@ app.get("/agents", async (_req: Request, res: Response, next: NextFunction) => {
  * GET /stats
  * Returns on-chain task count and agent count.
  */
+/**
+ * GET /setup/check
+ * Validates the backend configuration and returns any issues.
+ */
+app.get("/setup/check", async (_req: Request, res: Response) => {
+  const issues: string[] = [];
+
+  // Check coordinator key
+  try {
+    const fs = await import("fs/promises");
+    await fs.access(config.coordinatorKeyPath);
+  } catch {
+    issues.push(`Coordinator key not found at ${config.coordinatorKeyPath}. Set COORDINATOR_SECRET_KEY_PATH in your .env`);
+  }
+
+  // Check required env vars
+  if (!config.csprCloudAuthToken || config.csprCloudAuthToken === "your-cspr-cloud-auth-token") {
+    issues.push("CSPR_CLOUD_AUTH_TOKEN is missing or still a placeholder");
+  }
+  if (!config.veniceApiKey || config.veniceApiKey === "your-venice-api-key") {
+    issues.push("VENICE_API_KEY is missing or still a placeholder");
+  }
+
+  res.json({
+    ok: issues.length === 0,
+    issues: issues.length > 0 ? issues : undefined,
+    coordinatorKeyPath: config.coordinatorKeyPath,
+    keyExists: issues.length === 0 || !issues.some(i => i.includes("Coordinator key")),
+    casperRpc: config.casperNodeRpc,
+    chain: config.casperChainName,
+    contracts: {
+      agentRegistry: config.contracts.agentRegistry,
+      agentReputation: config.contracts.agentReputation,
+      taskCoordinator: config.contracts.taskCoordinator,
+    },
+    x402: {
+      facilitatorUrl: config.x402FacilitatorUrl,
+      network: config.x402.network,
+    },
+  });
+});
+
 app.get("/stats", async (_req: Request, res: Response, next: NextFunction) => {
   try {
     const [taskCount, agentCount] = await Promise.all([
@@ -101,6 +143,12 @@ app.get("/design-preview/:taskId", (req: Request, res: Response) => {
  * POST /agent/register
  * Register or deactivate an agent on the AgentRegistry contract.
  * Body: { mode: "register"|"deactivate", wallet, endpoint, capability, price }
+ *
+ * NOTE: The Casper contract's register() entry point uses the caller's address
+ * (self.env().caller()) as the agent identity. Currently the backend signs
+ * with the coordinator key. For production, the user's CSPR.click wallet
+ * should sign the deploy — that will be implemented in a future iteration
+ * using a prepare/submit pattern similar to /x402/prepare + /x402/submit.
  */
 app.post("/agent/register", limiter, async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -113,6 +161,17 @@ app.post("/agent/register", limiter, async (req: Request, res: Response, next: N
     };
 
     if (!wallet?.trim()) { res.status(400).json({ error: "wallet is required" }); return; }
+
+    // Check coordinator key exists before attempting chain call
+    try {
+      const fs = await import("fs/promises");
+      await fs.access(config.coordinatorKeyPath);
+    } catch {
+      res.status(400).json({
+        error: `Coordinator key not found at ${config.coordinatorKeyPath}. Set COORDINATOR_SECRET_KEY_PATH in your .env to a valid Ed25519 PEM file.`
+      });
+      return;
+    }
 
     const agentContractHash = config.contracts.agentRegistry;
 
@@ -583,7 +642,8 @@ app.post("/x402/submit", limiter, async (req: Request, res: Response, next: Next
 
 // ── Error handler ─────────────────────────────────────────────────────────────
 app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
-  console.error("[Server error]", err.message);
+  const stackLines = err.stack?.split("\n").slice(1, 3).join("\n");
+  console.error("[Server error]", err.message, stackLines || "");
   res.status(500).json({ error: err.message });
 });
 
