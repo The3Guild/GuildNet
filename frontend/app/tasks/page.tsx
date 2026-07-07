@@ -1,9 +1,10 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import { TaskCreator } from "@/components/tasks/task-creator";
 import { CheckCircle, ExternalLink, Trash2, ClipboardList, Sparkles, Bot, Zap } from "lucide-react";
 import { useTaskHistory } from "@/hooks/use-task-history";
-import { CASPER_EXPLORER } from "@/lib/constants";
+import { BACKEND_URL, CASPER_EXPLORER } from "@/lib/constants";
 import type { TaskRecord } from "@/hooks/use-tasks";
 
 const EXAMPLES = [
@@ -15,6 +16,19 @@ const EXAMPLES = [
 
 export default function TasksPage() {
   const { history, addTask, clearHistory } = useTaskHistory();
+  const [agentCount, setAgentCount] = useState<number | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch(`${BACKEND_URL}/agents`);
+        if (res.ok) {
+          const data = await res.json();
+          setAgentCount(data.agents?.length ?? null);
+        }
+      } catch {}
+    })();
+  }, []);
 
   return (
     <div className="space-y-8 max-w-5xl mx-auto w-full">
@@ -29,7 +43,7 @@ export default function TasksPage() {
         </div>
         <div className="flex items-center gap-4 text-xs text-slate-500">
           <div className="flex items-center gap-1.5">
-            <Bot className="w-3.5 h-3.5 text-cyan-400" /> 7 agents ready
+            <Bot className="w-3.5 h-3.5 text-cyan-400" /> {agentCount ?? "—"} agents ready
           </div>
           <div className="flex items-center gap-1.5">
             <Zap className="w-3.5 h-3.5 text-green-400" /> 0.5 CSPR per agent

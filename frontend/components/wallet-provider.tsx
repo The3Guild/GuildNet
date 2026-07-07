@@ -5,6 +5,7 @@ import {
   WALLET_KEYS,
 } from "@make-software/csprclick-core-types";
 import { ClickProvider } from "@/contexts/click-context";
+import { CHAIN_ID } from "@/lib/constants";
 import type { ReactNode } from "react";
 
 if (typeof window !== "undefined") {
@@ -31,7 +32,7 @@ if (typeof window !== "undefined") {
         WALLET_KEYS.W3A_APPLE,
       ],
       contentMode: CONTENT_MODE.IFRAME,
-      chainName: "casper-test",
+      chainName: CHAIN_ID,
     };
   }
 }

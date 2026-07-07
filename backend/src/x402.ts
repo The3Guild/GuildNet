@@ -18,6 +18,7 @@
  */
 
 import crypto from "crypto";
+import { keccak_256 } from "@noble/hashes/sha3";
 import { config } from "./config";
 
 // ── Types mirroring @make-software/casper-x402 exact scheme ──────────────────
@@ -86,11 +87,6 @@ export interface SettleResult {
 // signs raw digests directly.
 
 function keccak256(data: Buffer): Buffer {
-  // Node's crypto does not expose keccak256 directly — use the noble library
-  // bundled transitively by casper-js-sdk, or implement using hash.js.
-  // We use the standardised approach: import from @noble/hashes which is
-  // already present as a transitive dep of casper-js-sdk.
-  const { keccak_256 } = require("@noble/hashes/sha3");
   return Buffer.from(keccak_256(data));
 }
 

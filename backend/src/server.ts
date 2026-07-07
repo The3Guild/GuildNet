@@ -3,7 +3,7 @@ import express, { type Request, type Response, type NextFunction } from "express
 import cors from "cors";
 import rateLimit from "express-rate-limit";
 import { config } from "./config";
-import { runCoordinator } from "./coordinator";
+import { runCoordinator, findAllAgents, queryContractVar, callContractEntry } from "./coordinator";
 import { runAgent, type Capability } from "./agentRunner";
 import { buildProject } from "./builder";
 
@@ -22,6 +22,31 @@ const limiter = rateLimit({ windowMs: 60_000, max: 10, standardHeaders: true, le
 
 app.get("/health", (_req: Request, res: Response) => {
   res.json({ status: "ok", chain: config.casperChainName, network: "casper" });
+});
+
+/**
+ * GET /agents
+ * Returns all registered agents from the AgentRegistry contract.
+ */
+app.get("/agents", async (_req: Request, res: Response, next: NextFunction) => {
+  try {
+    const agents = await findAllAgents();
+    res.json({ agents });
+  } catch (err) { next(err); }
+});
+
+/**
+ * GET /stats
+ * Returns on-chain task count and agent count.
+ */
+app.get("/stats", async (_req: Request, res: Response, next: NextFunction) => {
+  try {
+    const [taskCount, agentCount] = await Promise.all([
+      queryContractVar("task_count").then(v => v !== undefined ? Number(v) : 0),
+      findAllAgents().then(a => a.length),
+    ]);
+    res.json({ taskCount, agentCount });
+  } catch (err) { next(err); }
 });
 
 /**
@@ -48,7 +73,7 @@ app.post("/task", limiter, async (req: Request, res: Response, next: NextFunctio
       taskId:              result.taskId,
       agentsHired:         result.agentsHired,
       // x402 deploy hashes — these are the real Casper payment proofs
-      x402Hashes:          result.x402Hashes,
+      txHashes:            result.txHashes,
       casperExplorerLinks: result.casperExplorerLinks,
       research:            result.research,
       riskAnalysis:        result.riskAnalysis,
@@ -70,6 +95,53 @@ app.get("/design-preview/:taskId", (req: Request, res: Response) => {
     : `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Design Preview</title></head><body>${html}</body></html>`;
   res.setHeader("Content-Type", "text/html");
   res.send(full);
+});
+
+/**
+ * POST /agent/register
+ * Register or deactivate an agent on the AgentRegistry contract.
+ * Body: { mode: "register"|"deactivate", wallet, endpoint, capability, price }
+ */
+app.post("/agent/register", limiter, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { mode, wallet, endpoint, capability, price } = req.body as {
+      mode: "register" | "deactivate";
+      wallet: string;
+      endpoint?: string;
+      capability?: string;
+      price?: string;
+    };
+
+    if (!wallet?.trim()) { res.status(400).json({ error: "wallet is required" }); return; }
+
+    const agentContractHash = config.contracts.agentRegistry;
+
+    if (mode === "deactivate") {
+      const deployHash = await callContractEntry(
+        "deactivate", {},
+        undefined,
+        agentContractHash,
+      );
+      res.json({ deployHash, mode: "deactivate" });
+      return;
+    }
+
+    if (!endpoint?.trim()) { res.status(400).json({ error: "endpoint is required for registration" }); return; }
+    if (!capability?.trim()) { res.status(400).json({ error: "capability is required for registration" }); return; }
+
+    const priceMotes = price
+      ? { type: "U512" as const, value: String(Math.round(parseFloat(price) * 1e9)) }
+      : { type: "U512" as const, value: "500000000" };
+
+    const deployHash = await callContractEntry(
+      "register",
+      { endpoint, capability, price_per_task: priceMotes },
+      undefined,
+      agentContractHash,
+    );
+
+    res.json({ deployHash, mode: "register" });
+  } catch (err) { next(err); }
 });
 
 /**

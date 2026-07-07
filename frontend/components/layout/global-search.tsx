@@ -42,9 +42,9 @@ export function GlobalSearch() {
   function handleKey(e: React.KeyboardEvent) {
     if (e.key === "Escape") { setOpen(false); setQuery(""); }
     if (e.key === "Enter" && q) {
-      // Navigate to agents page filtered by query if it matches a capability
-      router.push(`/agents`);
+      router.push(`/agents?q=${encodeURIComponent(q)}`);
       setOpen(false);
+      setQuery("");
     }
   }
 
@@ -78,14 +78,14 @@ export function GlobalSearch() {
             <div>
               <p className="px-4 py-2 text-[11px] font-semibold text-slate-500 uppercase tracking-wider border-b border-white/5">Agents</p>
               {matchedAgents.map(a => (
-                <button key={a.name} onClick={() => { router.push("/agents"); setOpen(false); setQuery(""); }}
+                <button key={a.name} onClick={() => { router.push(`/agents?q=${encodeURIComponent(q)}`); setOpen(false); setQuery(""); }}
                   className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-white/5 transition-colors text-left">
                   <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-cyan-500/30 to-violet-500/30 flex items-center justify-center flex-shrink-0">
                     <Bot className="w-3.5 h-3.5 text-cyan-400" />
                   </div>
                   <div className="min-w-0">
                     <p className="text-sm text-white truncate">{a.name}</p>
-                    <p className="text-xs text-slate-500">{a.type} · {a.price} ETH/task</p>
+                    <p className="text-xs text-slate-500">{a.type} · {a.price} CSPR/task</p>
                   </div>
                 </button>
               ))}

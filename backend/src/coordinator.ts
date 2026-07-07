@@ -31,7 +31,7 @@ async function getSdk() {
 
 // ── Query a named key from the TaskCoordinator contract ─────────────────────
 
-async function queryContractVar(varName: string): Promise<bigint | undefined> {
+export async function queryContractVar(varName: string): Promise<bigint | undefined> {
   const contractHash = config.contracts.taskCoordinator.replace("hash-", "");
 
   // Attempt 1 — direct Casper RPC via queryLatestGlobalState
@@ -83,13 +83,13 @@ export interface TaskResult {
   audit?:              string;
   report:              string;
   agentsHired:         string[];   // Casper account hashes
-  x402Hashes:          string[];   // deploy hashes from x402 settlements
+  txHashes:          string[];   // deploy hashes from x402 settlements
   casperExplorerLinks: string[];
 }
 
 // ── Agent record shape from AgentRegistry ────────────────────────────────────
 
-interface AgentRecord {
+export interface AgentRecord {
   accountHash:      string;   // "00<64 hex>" — used as x402 payTo
   endpoint:         string;
   capability:       string;
@@ -99,6 +99,36 @@ interface AgentRecord {
 }
 
 // ── Agent discovery via CSPR.cloud REST ──────────────────────────────────────
+
+export async function findAllAgents(): Promise<AgentRecord[]> {
+  try {
+    const registryHash = config.contracts.agentRegistry.replace("hash-", "");
+    const data = await csproCloudGet(
+      `/contracts/${registryHash}/named-keys`
+    ) as { data?: Array<{ name: string; value: string }> };
+
+    const agents: AgentRecord[] = [];
+    for (const entry of (data.data ?? [])) {
+      try {
+        const parsed = JSON.parse(entry.value ?? "{}");
+        if (parsed.active === true) {
+          agents.push({
+            accountHash:     "00" + entry.name,
+            endpoint:        parsed.endpoint   ?? "",
+            capability:      parsed.capability ?? "",
+            pricePerTask:    String(parsed.price_per_task ?? "500000000"),
+            active:          true,
+            reputationScore: parsed.reputation_score ?? 5000,
+          });
+        }
+      } catch { /* skip non-agent entries */ }
+    }
+    return agents.sort((a, b) => b.reputationScore - a.reputationScore);
+  } catch (err) {
+    console.warn(`[Coordinator] CSPR.cloud agent discovery failed: ${err}`);
+    return [];
+  }
+}
 
 async function findAgents(capability: string): Promise<AgentRecord[]> {
   try {
@@ -134,10 +164,11 @@ async function findAgents(capability: string): Promise<AgentRecord[]> {
 
 // ── On-chain contract calls (casper-js-sdk v5) ────────────────────────────────
 
-async function callContractEntry(
+export async function callContractEntry(
   entryPoint: string,
-  namedArgs:  Record<string, string | bigint | boolean>,
+  namedArgs:  Record<string, string | bigint | boolean | { type: "U512"; value: string }>,
   paymentMotes?: bigint,
+  contractOverride?: string,
 ): Promise<string> {
   const sdk = await getSdk();
   const { KeyAlgorithm, PrivateKey, RpcClient, HttpHandler, Hash, InitiatorAddr } = sdk;
@@ -157,6 +188,8 @@ async function callContractEntry(
     if (typeof v === "string")  args.insert(k, CLValue.newCLString(v));
     else if (typeof v === "bigint")  args.insert(k, CLValue.newCLUint64(v));
     else if (typeof v === "boolean") args.insert(k, CLValue.newCLValueBool(v));
+    else if (typeof v === "object" && "type" in v && v.type === "U512")
+      args.insert(k, CLValue.newCLUInt512(v.value));
   }
 
   const {
@@ -167,7 +200,7 @@ async function callContractEntry(
     PricingMode, FixedMode, PaymentLimitedMode, Timestamp, Duration,
   } = sdk;
 
-  const contractHash = config.contracts.taskCoordinator.replace("hash-", "");
+  const contractHash = (contractOverride ?? config.contracts.taskCoordinator).replace("hash-", "");
 
   // Build transaction target: stored contract call by package hash
   const byPackageHash = new ByPackageHashInvocationTarget();
@@ -295,7 +328,7 @@ async function hireAndPay(
     agent.pricePerTask,
     agent.endpoint || `https://guildnet.io/agents/${agent.capability}`
   );
-  result.x402Hashes.push(x402Hash);
+  result.txHashes.push(x402Hash);
   result.casperExplorerLinks.push(`https://testnet.cspr.live/deploy/${x402Hash}`);
 }
 
@@ -310,7 +343,7 @@ export async function runCoordinator(
     taskId:              "",
     report:              "",
     agentsHired:         [],
-    x402Hashes:          [],
+    txHashes:          [],
     casperExplorerLinks: [],
   };
 
@@ -397,7 +430,7 @@ export async function runCoordinator(
   result.casperExplorerLinks.push(`https://testnet.cspr.live/deploy/${completeHash}`);
 
   console.log("\n[Coordinator] ✅ Task complete!");
-  console.log(`[Coordinator] x402 deploy hashes: ${result.x402Hashes.join(", ")}`);
+  console.log(`[Coordinator] x402 deploy hashes: ${result.txHashes.join(", ")}`);
   console.log("[Coordinator] Explorer links:");
   result.casperExplorerLinks.forEach(l => console.log("  ", l));
 

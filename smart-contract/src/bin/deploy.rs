@@ -20,8 +20,34 @@ use guildnet::{
     task_coordinator::TaskCoordinator,
 };
 use odra::host::{Deployer, HostEnv, NoArgs};
+use odra::prelude::Addressable;
 use odra::casper_types::U512;
 use odra_casper_livenet_env::env;
+use guildnet::task_coordinator::TaskCoordinatorInitArgs;
+
+fn read_package_hash() -> [u8; 32] {
+    let hex_str = std::env::var("PACKAGE_HASH").unwrap_or_else(|_| {
+        eprintln!("error: PACKAGE_HASH env var not set");
+        eprintln!("hint:  Set PACKAGE_HASH to the 64-char hex of an already-deployed");
+        eprintln!("       CEP-18 (WCSPR) package hash on the target network.");
+        eprintln!("       Example:");
+        eprintln!("         PACKAGE_HASH=3d80df21ba4ee4d66a2a1f60c32570dd5685e4b279f6538162a5fd1314847c1e");
+        eprintln!("       Or for Mainnet, use the official CEP-18 package hash.");
+        std::process::exit(1);
+    });
+    let hex_str = hex_str.strip_prefix("0x").unwrap_or(&hex_str);
+    let bytes = hex::decode(hex_str).unwrap_or_else(|e| {
+        eprintln!("error: PACKAGE_HASH is not valid hex: {e}");
+        std::process::exit(1);
+    });
+    if bytes.len() != 32 {
+        eprintln!("error: PACKAGE_HASH must be exactly 64 hex characters (32 bytes), got {} bytes", bytes.len());
+        std::process::exit(1);
+    }
+    let mut out = [0u8; 32];
+    out.copy_from_slice(&bytes);
+    out
+}
 
 fn main() {
     // Gas budget constants (in motes)
@@ -35,20 +61,20 @@ fn main() {
     println!("═══════════════════════════════════════════════════════════");
     println!(" GuildNet — Casper Testnet Deploy");
     println!("═══════════════════════════════════════════════════════════");
-    println!(" Deployer : {}", deployer);
+    println!(" Deployer : {:?}", deployer);
     println!();
 
     // ── 1. Deploy AgentRegistry ───────────────────────────────────────────
     println!("[1/6] Deploying AgentRegistry…");
     env.set_gas(DEPLOY_GAS);
     let mut registry = AgentRegistry::deploy(&env, NoArgs);
-    println!("      ✓ AgentRegistry : {}", registry.address());
+    println!("      ✓ AgentRegistry : {:?}", registry.address());
 
     // ── 2. Deploy AgentReputation ─────────────────────────────────────────
     println!("[2/6] Deploying AgentReputation…");
     env.set_gas(DEPLOY_GAS);
     let mut reputation = AgentReputation::deploy(&env, NoArgs);
-    println!("      ✓ AgentReputation : {}", reputation.address());
+    println!("      ✓ AgentReputation : {:?}", reputation.address());
 
     // ── 3. Deploy TaskCoordinator ─────────────────────────────────────────
     println!("[3/6] Deploying TaskCoordinator…");
@@ -56,12 +82,14 @@ fn main() {
     let coordinator = TaskCoordinator::deploy(
         &env,
         TaskCoordinatorInitArgs {
-            registry:    registry.address(),
-            reputation:  reputation.address(),
-            coordinator: deployer,
+            registry:     registry.address(),
+            reputation:   reputation.address(),
+            coordinator:  deployer,
+            chain_name:   "casper-test".to_string(),
+            package_hash: read_package_hash(),
         },
     );
-    println!("      ✓ TaskCoordinator : {}", coordinator.address());
+    println!("      ✓ TaskCoordinator : {:?}", coordinator.address());
 
     // ── 4. Wire AgentReputation → knows TaskCoordinator + AgentRegistry ───
     println!("[4/6] Configuring AgentReputation (coordinator + registry)…");
@@ -96,15 +124,15 @@ fn main() {
     println!("═══════════════════════════════════════════════════════════");
     println!(" Deployment complete — copy these into your backend/.env");
     println!("═══════════════════════════════════════════════════════════");
-    println!(" AGENT_REGISTRY_HASH={}", registry.address());
-    println!(" AGENT_REPUTATION_HASH={}", reputation.address());
-    println!(" TASK_COORDINATOR_HASH={}", coordinator.address());
+println!(" AGENT_REGISTRY_HASH={:?}", registry.address());
+println!(" AGENT_REPUTATION_HASH={:?}", reputation.address());
+println!(" TASK_COORDINATOR_HASH={:?}", coordinator.address());
     println!("═══════════════════════════════════════════════════════════");
     println!();
     println!(" Explorer links (Testnet):");
-    println!("   https://testnet.cspr.live/contract/{}", registry.address());
-    println!("   https://testnet.cspr.live/contract/{}", reputation.address());
-    println!("   https://testnet.cspr.live/contract/{}", coordinator.address());
+    println!("   https://testnet.cspr.live/contract/{:?}", registry.address());
+    println!("   https://testnet.cspr.live/contract/{:?}", reputation.address());
+    println!("   https://testnet.cspr.live/contract/{:?}", coordinator.address());
     println!("═══════════════════════════════════════════════════════════");
     println!();
     println!(" To register additional agents with separate capabilities,");
