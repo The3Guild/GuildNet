@@ -1,0 +1,44 @@
+services:
+  - type: web
+    name: guildnet-backend
+    runtime: node
+    rootDir: backend
+    buildCommand: npm install && npm run build
+    startCommand: node dist/server.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: CASPER_NODE_RPC
+        value: https://node.testnet.casper.network/rpc
+      - key: CASPER_CHAIN_NAME
+        value: casper-test
+      - key: COORDINATOR_SECRET_KEY_PATH
+        value: /etc/secrets/secret_key.pem
+      - key: COORDINATOR_KEY_ALGO
+        value: ed25519
+      - key: AGENT_REGISTRY_HASH
+        sync: false
+      - key: AGENT_REPUTATION_HASH
+        sync: false
+      - key: TASK_COORDINATOR_HASH
+        sync: false
+      - key: CSPR_CLOUD_AUTH_TOKEN
+        sync: false
+      - key: VENICE_API_KEY
+        sync: false
+      - key: X402_FACILITATOR_URL
+        value: https://x402-facilitator.cspr.cloud
+      - key: X402_ASSET_PACKAGE
+        value: 3d80df21ba4ee4d66a2a1f60c32570dd5685e4b279f6538162a5fd1314847c1e
+      - key: X402_TOKEN_NAME
+        value: Wrapped CSPR
+      - key: X402_TOKEN_VERSION
+        value: "1"
+      - key: X402_TOKEN_DECIMALS
+        value: "9"
+      - key: X402_NETWORK
+        value: casper:casper-test
+      - key: X402_TIMEOUT_SECONDS
+        value: "300"
+      - key: PORT
+        value: "3000"
