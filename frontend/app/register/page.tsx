@@ -66,15 +66,28 @@ export default function RegisterPage() {
       }
       const { deployJSON } = await prepRes.json();
 
-      // 2. User's CSPR.click wallet signs and submits the deploy
+      // 2. User's CSPR.click wallet signs the deploy locally
       if (!clickRef) throw new Error("CSPR.click not connected — reconnect your wallet");
-      const result = await clickRef.send(deployJSON, address, true);
-      if (!result) throw new Error("No response from wallet — try again");
-      if (result.cancelled) throw new Error("Signing cancelled in wallet");
-      if (result.error) throw new Error(result.error);
+      const signResult = await clickRef.sign(deployJSON, address);
+      if (!signResult) throw new Error("No response from wallet — try again");
+      if (signResult.cancelled) throw new Error("Signing cancelled in wallet");
+      if (signResult.error) throw new Error(signResult.error);
 
-      const txHash = result.deployHash ?? result.transactionHash;
-      if (!txHash) throw new Error("Deploy submitted but no hash returned");
+      const signedDeploy = signResult.deploy;
+      if (!signedDeploy) throw new Error("No signed deploy returned");
+
+      // 3. Submit the signed deploy via the backend RPC (bypasses CSPR.click proxy)
+      const submitRes = await fetch(`${BACKEND_URL}/agent/register/submit`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ signedDeploy, endpoint, capability: cap, price }),
+      });
+      if (!submitRes.ok) {
+        const err = await submitRes.json().catch(() => ({ error: submitRes.statusText }));
+        throw new Error(err.error ?? submitRes.statusText);
+      }
+      const { deployHash: txHash } = await submitRes.json();
+      if (!txHash) throw new Error("No deploy hash returned");
       setDeployHash(txHash);
       setConfirmed(true);
       if (mode !== "deactivate") {

@@ -23,7 +23,7 @@ if (typeof window !== "undefined") {
   if (!window.clickSDKOptions) {
     window.clickSDKOptions = {
       appName: "GuildNet",
-      appId: "csprclick-template",
+      appId: "c9446acd-7d5c-4108-be65-54fad25f",
       providers: [
         WALLET_KEYS.CASPER_WALLET,
         WALLET_KEYS.LEDGER,
