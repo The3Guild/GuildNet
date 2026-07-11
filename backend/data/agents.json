@@ -54,5 +54,13 @@
     "pricePerTask": "500000000",
     "active": true,
     "reputationScore": 5000
+  },
+  "002df5e90f4017c81e91887379f9d7860ca2902d9cfe7b5cb7b5ed7ff564812e96": {
+    "accountHash": "002df5e90f4017c81e91887379f9d7860ca2902d9cfe7b5cb7b5ed7ff564812e96",
+    "endpoint": "http://localhost:3001/register",
+    "capability": "fast agent",
+    "pricePerTask": "500000000",
+    "active": true,
+    "reputationScore": 5000
   }
 }

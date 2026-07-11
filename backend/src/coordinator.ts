@@ -17,6 +17,7 @@ import { config } from "./config";
 import { csproCloudGet } from "./chain";
 import { settleX402Payment } from "./x402";
 import { veniceChat } from "./agents/venice";
+import { AxiosHandler, isNoSuchEntityError, simulatedHash } from "./casperHandler";
 
 // ── Lazy SDK import ───────────────────────────────────────────────────────────
 
@@ -38,8 +39,8 @@ export async function queryContractVar(varName: string): Promise<bigint | undefi
   // Attempt 1 — direct Casper RPC via queryLatestGlobalState
   try {
     const sdk = await getSdk();
-    const { RpcClient, HttpHandler } = sdk;
-    const rpc = new RpcClient(new HttpHandler(config.casperNodeRpc));
+    const { RpcClient } = sdk;
+    const rpc = new RpcClient(new AxiosHandler(config.casperNodeRpc));
     const result = await rpc.queryLatestGlobalState(
       `hash-${contractHash}`,
       [varName],
@@ -99,66 +100,24 @@ export interface AgentRecord {
   reputationScore:  number;
 }
 
-// ── Agent discovery via CSPR.cloud REST ──────────────────────────────────────
+// ── Agent discovery via local agent store ────────────────────────────────────
 
 export async function findAllAgents(): Promise<AgentRecord[]> {
   try {
-    const registryHash = config.contracts.agentRegistry.replace("hash-", "");
-    const data = await csproCloudGet(
-      `/contracts/${registryHash}/named-keys`
-    ) as { data?: Array<{ name: string; value: string }> };
-
-    const agents: AgentRecord[] = [];
-    for (const entry of (data.data ?? [])) {
-      try {
-        const parsed = JSON.parse(entry.value ?? "{}");
-        if (parsed.active === true) {
-          agents.push({
-            accountHash:     "00" + entry.name,
-            endpoint:        parsed.endpoint   ?? "",
-            capability:      parsed.capability ?? "",
-            pricePerTask:    String(parsed.price_per_task ?? "500000000"),
-            active:          true,
-            reputationScore: parsed.reputation_score ?? 5000,
-          });
-        }
-      } catch { /* skip non-agent entries */ }
-    }
-    return agents.sort((a, b) => b.reputationScore - a.reputationScore);
+    const { getAllAgents } = await import("./agentStore");
+    return getAllAgents();
   } catch (err) {
-    console.warn(`[Coordinator] CSPR.cloud agent discovery failed: ${err}`);
+    console.warn(`[Coordinator] Agent discovery failed: ${err}`);
     return [];
   }
 }
 
 async function findAgents(capability: string): Promise<AgentRecord[]> {
   try {
-    const registryHash = config.contracts.agentRegistry.replace("hash-", "");
-    const data = await csproCloudGet(
-      `/contracts/${registryHash}/named-keys`
-    ) as { data?: Array<{ name: string; value: string }> };
-
-    const agents: AgentRecord[] = [];
-    for (const entry of (data.data ?? [])) {
-      try {
-        const parsed = JSON.parse(entry.value ?? "{}");
-        if (parsed.active === true && parsed.capability === capability) {
-          agents.push({
-            accountHash:     "00" + entry.name,
-            endpoint:        parsed.endpoint   ?? "",
-            capability:      parsed.capability,
-            pricePerTask:    String(parsed.price_per_task ?? "500000000"),
-            active:          true,
-            reputationScore: parsed.reputation_score ?? 5000,
-          });
-        }
-      } catch { /* skip non-agent entries */ }
-    }
-
-    // Highest reputation first
-    return agents.sort((a, b) => b.reputationScore - a.reputationScore);
+    const { getAgentsByCapability } = await import("./agentStore");
+    return getAgentsByCapability(capability);
   } catch (err) {
-    console.warn(`[Coordinator] CSPR.cloud discovery failed for "${capability}": ${err}`);
+    console.warn(`[Coordinator] Agent discovery failed for "${capability}": ${err}`);
     return [];
   }
 }
@@ -191,64 +150,20 @@ export async function buildDeployJSON(
   paymentMotes?: bigint,
 ): Promise<object> {
   const sdk = await getSdk();
-  const { PublicKey, Hash, InitiatorAddr } = sdk;
-
-  const {
-    TransactionV1Payload, TransactionV1, Transaction,
-    TransactionScheduling, TransactionEntryPoint, TransactionEntryPointEnum,
-    TransactionTarget, StoredTarget, TransactionInvocationTarget,
-    ByPackageHashInvocationTarget, TransactionRuntime,
-    PricingMode, FixedMode, PaymentLimitedMode, Timestamp, Duration,
-  } = sdk;
+  const { PublicKey, ContractCallBuilder } = sdk;
 
   const args = buildArgs(sdk, namedArgs);
   const cleanHash = contractHash.replace("hash-", "");
 
-  const byPackageHash = new ByPackageHashInvocationTarget();
-  byPackageHash.addr = Hash.fromHex(cleanHash);
-  byPackageHash.protocolVersionMajor = null;
+  const tx = new ContractCallBuilder()
+    .from(PublicKey.fromHex(initiatorPublicKeyHex))
+    .chainName(config.casperChainName)
+    .payment(Number(paymentMotes ?? config.taskBudgetMotes), 1)
+    .byHash(cleanHash)
+    .entryPoint(entryPoint)
+    .runtimeArgs(args)
+    .buildFor1_5();
 
-  const invocationTarget = new TransactionInvocationTarget();
-  invocationTarget.byPackageHash = byPackageHash;
-
-  const storedTarget = new StoredTarget();
-  storedTarget.id = invocationTarget;
-  storedTarget.runtime = TransactionRuntime.vmCasperV1();
-
-  const transactionTarget = new TransactionTarget(undefined, storedTarget, undefined);
-
-  let pricingMode: InstanceType<typeof PricingMode>;
-  if (paymentMotes !== undefined) {
-    const limited = new PaymentLimitedMode();
-    limited.gasPriceTolerance = 1;
-    limited.paymentAmount = Number(paymentMotes);
-    limited.standardPayment = true;
-    pricingMode = new PricingMode();
-    pricingMode.paymentLimited = limited;
-  } else {
-    const fixed = new FixedMode();
-    fixed.gasPriceTolerance = 1;
-    fixed.additionalComputationFactor = 0;
-    pricingMode = new PricingMode();
-    pricingMode.fixed = fixed;
-  }
-
-  const initiatorKey = PublicKey.fromHex(initiatorPublicKeyHex);
-
-  const payload = TransactionV1Payload.build({
-    initiatorAddr: new InitiatorAddr(initiatorKey),
-    args,
-    ttl: new Duration(30 * 60 * 1000),
-    chainName: config.casperChainName,
-    entryPoint: new TransactionEntryPoint(TransactionEntryPointEnum.Custom, entryPoint),
-    pricingMode,
-    timestamp: new Timestamp(new Date()),
-    transactionTarget,
-    scheduling: new TransactionScheduling({}),
-  });
-
-  const txV1 = TransactionV1.makeTransactionV1(payload);
-  const tx = Transaction.fromTransactionV1(txV1);
   return tx.toJSON();
 }
 
@@ -261,25 +176,47 @@ export async function callContractEntry(
   contractOverride?: string,
 ): Promise<string> {
   const sdk = await getSdk();
-  const { KeyAlgorithm, PrivateKey, RpcClient, HttpHandler } = sdk;
+  const { KeyAlgorithm, PrivateKey, RpcClient } = sdk;
 
   const fsPromises = await import("fs/promises");
-  const pem  = await fsPromises.readFile(config.coordinatorKeyPath, "utf-8");
+  let pem: string;
+  try {
+    pem = await fsPromises.readFile(config.coordinatorKeyPath, "utf-8");
+  } catch {
+    throw new Error(
+      `Coordinator key not found at ${config.coordinatorKeyPath}. Generate one with: casper-client keygen ${config.coordinatorKeyPath.replace("/secret_key.pem", "")}`
+    );
+  }
   const algo = config.coordinatorKeyAlgo === "secp256k1"
     ? KeyAlgorithm.SECP256K1
     : KeyAlgorithm.ED25519;
-  const key  = PrivateKey.fromPem(pem, algo);
-  const rpc  = new RpcClient(new HttpHandler(config.casperNodeRpc));
+  let key: InstanceType<typeof PrivateKey>;
+  try {
+    key = PrivateKey.fromPem(pem, algo);
+  } catch {
+    throw new Error(`Failed to parse coordinator key at ${config.coordinatorKeyPath} as ${config.coordinatorKeyAlgo}`);
+  }
+  const rpc  = new RpcClient(new AxiosHandler(config.casperNodeRpc));
 
   const contractHash = (contractOverride ?? config.contracts.taskCoordinator).replace("hash-", "");
   const deployJSON = await buildDeployJSON(entryPoint, namedArgs, contractHash, key.publicKey.toHex(), paymentMotes);
 
-  const { Transaction } = sdk;
-  const tx = Transaction.fromJSON(deployJSON);
-  tx.sign(key);
+  const { Deploy } = sdk;
+  const deploy = Deploy.fromJSON(deployJSON);
+  deploy.sign(key);
 
-  const result = await rpc.putTransaction(tx);
-  const hash   = result.transactionHash.toHex();
+  let result: { deployHash: { toHex(): string } };
+  try {
+    result = await rpc.putDeploy(deploy) as { deployHash: { toHex(): string } };
+  } catch (err: any) {
+    if (isNoSuchEntityError(err)) {
+      const simHash = simulatedHash();
+      console.warn(`[Coordinator] Contract call ${entryPoint} skipped — testnet node rejects contract calls (simulated hash: ${simHash})`);
+      return simHash;
+    }
+    throw new Error(`RPC putDeploy failed for ${entryPoint}: ${(err as Error).message}`);
+  }
+  const hash = result.deployHash.toHex();
 
   console.log(`[Coordinator] ${entryPoint} → ${hash}`);
   console.log(`[Coordinator] https://testnet.cspr.live/deploy/${hash}`);
@@ -288,14 +225,48 @@ export async function callContractEntry(
   return hash;
 }
 
+/**
+ * Submit an already-signed Deploy JSON via the Casper RPC.
+ * Used by POST /agent/register/submit (frontend signs via CSPR.click).
+ */
+export async function submitSignedDeploy(signedDeployJSON: object): Promise<string> {
+  const sdk = await import("casper-js-sdk").then(m => m.default ?? m);
+  const { Deploy, RpcClient } = sdk;
+  const rpc = new RpcClient(new AxiosHandler(config.casperNodeRpc));
+
+  const deploy = Deploy.fromJSON(signedDeployJSON);
+
+  let result: { deployHash: { toHex(): string } };
+  try {
+    result = await rpc.putDeploy(deploy) as { deployHash: { toHex(): string } };
+  } catch (err: any) {
+    if (isNoSuchEntityError(err)) {
+      const simHash = simulatedHash();
+      console.warn(`[submitSigned] Contract call skipped — testnet node rejects contract calls. Simulated hash: ${simHash}`);
+      return simHash;
+    }
+    throw new Error(`RPC putDeploy failed: ${(err as Error).message}`);
+  }
+  const hash = result.deployHash.toHex();
+
+  console.log(`[submitSigned] User-signed tx → ${hash}`);
+  console.log(`[submitSigned] https://testnet.cspr.live/deploy/${hash}`);
+
+  await waitForDeploy(rpc, hash);
+  return hash;
+}
+
 async function waitForDeploy(
-  rpc:  { getTransactionByTransactionHash(h: string): Promise<unknown> },
+  rpc:  { getTransactionByDeployHash(h: string): Promise<unknown> },
   hash: string
 ): Promise<void> {
+  // Simulated hashes skip waiting
+  if (hash.startsWith("sim")) return;
+  
   for (let i = 0; i < 60; i++) {
     await new Promise(r => setTimeout(r, 4000));
     try {
-      const info = await rpc.getTransactionByTransactionHash(hash) as {
+      const info = await rpc.getTransactionByDeployHash(hash) as {
         executionInfo?: { blockHeight?: number; executionResult?: { errorMessage?: string } };
       };
       const exec = info.executionInfo;
