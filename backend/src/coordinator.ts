@@ -334,6 +334,8 @@ async function hireAndPay(
 
 // ── Main orchestration loop ───────────────────────────────────────────────────
 
+let _nextTaskId = 0n;
+
 export async function runCoordinator(
   taskDescription: string,
   capabilities: string[] = ["research", "risk", "audit", "report"]
@@ -347,19 +349,29 @@ export async function runCoordinator(
     casperExplorerLinks: [],
   };
 
-  // ── Query real task ID from contract state ────────────────────────────────
-  const TASK_ID = (await queryContractVar("task_count")) ?? 0n;
-  console.log(`[Coordinator] Real TASK_ID = ${TASK_ID}`);
+  // ── Query real task ID from contract state (fallback to local counter) ─────
+  let TASK_ID: bigint;
+  try {
+    TASK_ID = (await queryContractVar("task_count")) ?? _nextTaskId++;
+    console.log(`[Coordinator] Real TASK_ID = ${TASK_ID}`);
+  } catch {
+    TASK_ID = _nextTaskId++;
+    console.warn(`[Coordinator] Could not query task_count, using local ID ${TASK_ID}`);
+  }
 
-  // ── Create task on Casper ──────────────────────────────────────────────────
-  console.log(`[Coordinator] Creating task on Casper Testnet…`);
-  const createHash = await callContractEntry("create_task", {
-    description: taskDescription,
-  }, config.taskBudgetMotes);
+  // ── Create task on Casper (non-fatal) ──────────────────────────────────────
+  try {
+    console.log(`[Coordinator] Creating task on Casper Testnet…`);
+    const createHash = await callContractEntry("create_task", {
+      description: taskDescription,
+    }, config.taskBudgetMotes);
+    result.casperExplorerLinks.push(`https://testnet.cspr.live/deploy/${createHash}`);
+  } catch (err) {
+    console.warn(`[Coordinator] create_task failed (continuing): ${err}`);
+  }
   result.taskId = String(TASK_ID);
-  result.casperExplorerLinks.push(`https://testnet.cspr.live/deploy/${createHash}`);
 
-  // ── Discover agents ────────────────────────────────────────────────────────
+  // ── Discover agents (non-blocking — AI runs regardless) ────────────────────
   const agentMap: Partial<Record<string, AgentRecord>> = {};
   await Promise.all(capabilities.map(async cap => {
     const found = await findAgents(cap);
@@ -367,13 +379,13 @@ export async function runCoordinator(
       agentMap[cap] = found[0];
       console.log(`[Coordinator] Found ${cap} agent: ${found[0].accountHash.slice(0, 14)}… (rep=${found[0].reputationScore})`);
     } else {
-      console.warn(`[Coordinator] No ${cap} agent on-chain — skipping`);
+      console.warn(`[Coordinator] No ${cap} agent registered — will run AI without on-chain hire`);
     }
   }));
 
-  // ── Wave 1: independent agents (parallel Venice, sequential on-chain) ──────
+  // ── Wave 1: independent capabilities (parallel Venice AI) ──────────────────
   const dependents = ["risk", "audit", "report"];
-  const wave1 = capabilities.filter(c => !dependents.includes(c) && agentMap[c]);
+  const wave1 = capabilities.filter(c => !dependents.includes(c));
 
   if (wave1.length) {
     console.log(`[Coordinator] Wave 1 (parallel Venice): ${wave1.join(", ")}`);
@@ -381,50 +393,74 @@ export async function runCoordinator(
 
     for (let i = 0; i < wave1.length; i++) {
       const cap = wave1[i];
-      await hireAndPay(agentMap[cap]!, TASK_ID, result);
+      // Store AI output regardless of agent registration
       if (cap === "research")     result.research = outputs[i];
       else if (cap === "coding")  result.coding   = outputs[i];
       else if (cap === "design")  result.design   = outputs[i];
       else result.research = (result.research ?? "") + `\n\n[${cap.toUpperCase()}]\n${outputs[i]}`;
+
+      // Hire + pay on-chain only if an agent is registered
+      if (agentMap[cap]) {
+        try {
+          await hireAndPay(agentMap[cap]!, TASK_ID, result);
+        } catch (err) {
+          console.warn(`[Coordinator] hireAndPay for ${cap} failed (non-fatal): ${err}`);
+        }
+      }
     }
   }
 
-  // ── Wave 2: risk ───────────────────────────────────────────────────────────
-  if (capabilities.includes("risk") && agentMap.risk) {
+  // ── Wave 2: risk (depends on research) ─────────────────────────────────────
+  if (capabilities.includes("risk")) {
     console.log("[Coordinator] Wave 2: risk");
     const output = await callAgent("risk", taskDescription, (result.research ?? "").slice(0, 1500));
-    await hireAndPay(agentMap.risk, TASK_ID, result);
     result.riskAnalysis = output;
+    if (agentMap.risk) {
+      try { await hireAndPay(agentMap.risk, TASK_ID, result); } catch (err) {
+        console.warn(`[Coordinator] hireAndPay risk failed (non-fatal): ${err}`);
+      }
+    }
   }
 
-  // ── Wave 3: audit ──────────────────────────────────────────────────────────
-  if (capabilities.includes("audit") && agentMap.audit) {
+  // ── Wave 3: audit (depends on research + risk) ─────────────────────────────
+  if (capabilities.includes("audit")) {
     console.log("[Coordinator] Wave 3: audit");
     const ctx = [result.research?.slice(0, 600), result.riskAnalysis?.slice(0, 600)]
       .filter(Boolean).join("\n\n");
     const output = await callAgent("audit", taskDescription, ctx);
-    await hireAndPay(agentMap.audit, TASK_ID, result);
     result.audit = output;
+    if (agentMap.audit) {
+      try { await hireAndPay(agentMap.audit, TASK_ID, result); } catch (err) {
+        console.warn(`[Coordinator] hireAndPay audit failed (non-fatal): ${err}`);
+      }
+    }
   }
 
-  // ── Wave 4: report ─────────────────────────────────────────────────────────
-  if (capabilities.includes("report") && agentMap.report) {
+  // ── Wave 4: report (depends on all above) ──────────────────────────────────
+  if (capabilities.includes("report")) {
     console.log("[Coordinator] Wave 4: report");
     const ctx = [result.research?.slice(0, 1000), result.riskAnalysis?.slice(0, 800), result.audit?.slice(0, 500)]
       .filter(Boolean).join("\n\n");
     const output = await callAgent("report", taskDescription, ctx);
-    await hireAndPay(agentMap.report, TASK_ID, result);
     result.report = output;
+    if (agentMap.report) {
+      try { await hireAndPay(agentMap.report, TASK_ID, result); } catch (err) {
+        console.warn(`[Coordinator] hireAndPay report failed (non-fatal): ${err}`);
+      }
+    }
   }
 
-  // ── Complete task — store result hash on-chain ─────────────────────────────
-  const resultHash = crypto.createHash("sha256").update(result.report).digest("hex");
-
-  const completeHash = await callContractEntry("complete_task", {
-    task_id:     TASK_ID,
-    result_hash: resultHash,
-  });
-  result.casperExplorerLinks.push(`https://testnet.cspr.live/deploy/${completeHash}`);
+  // ── Complete task — store result hash on-chain (non-fatal) ─────────────────
+  try {
+    const resultHash = crypto.createHash("sha256").update(result.report).digest("hex");
+    const completeHash = await callContractEntry("complete_task", {
+      task_id:     TASK_ID,
+      result_hash: resultHash,
+    });
+    result.casperExplorerLinks.push(`https://testnet.cspr.live/deploy/${completeHash}`);
+  } catch (err) {
+    console.warn(`[Coordinator] complete_task failed (non-fatal): ${err}`);
+  }
 
   console.log("\n[Coordinator] ✅ Task complete!");
   console.log(`[Coordinator] x402 deploy hashes: ${result.txHashes.join(", ")}`);
