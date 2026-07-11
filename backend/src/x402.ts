@@ -189,6 +189,18 @@ async function facilitatorPost(endpoint: string, body: unknown): Promise<unknown
   return res.json();
 }
 
+// ── Account-hash validation ────────────────────────────────────────────────────
+
+const ACCOUNT_HASH_RE = /^00[0-9a-f]{64}$/i;
+
+/**
+ * Validate a Casper account hash.
+ * Must be exactly "00" followed by 64 lowercase or uppercase hex characters (66 chars total).
+ */
+function isValidAccountHash(hash: string): boolean {
+  return ACCOUNT_HASH_RE.test(hash);
+}
+
 // ── Main exported function ────────────────────────────────────────────────────
 
 /**
@@ -212,6 +224,11 @@ export async function settleX402Payment(
   amountBaseUnits: string,
   resourceUrl: string,
 ): Promise<string> {
+  if (!isValidAccountHash(payeeAccountHash)) {
+    throw new Error(
+      `[x402] Invalid payTo account-hash: "${payeeAccountHash}" — must be "00" followed by 64 hex chars (${payeeAccountHash.length} chars total)`
+    );
+  }
   const casper = await import("casper-js-sdk");
   const { KeyAlgorithm, PrivateKey } = casper.default ?? casper;
 
@@ -226,6 +243,12 @@ export async function settleX402Payment(
   // Derive payer account hash ("00" + hex)
   const payerAccountHash = "00" + privateKey.publicKey.accountHash().toHex();
   const payerPublicKey   = privateKey.publicKey.toHex();
+
+  if (!isValidAccountHash(payerAccountHash)) {
+    throw new Error(
+      `[x402] Derived payer account-hash is invalid: "${payerAccountHash}" (${payerAccountHash.length} chars)`
+    );
+  }
 
   // Build authorization
   const now          = Math.floor(Date.now() / 1000);

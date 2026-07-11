@@ -688,9 +688,16 @@ app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
   res.status(500).json({ error: err.message });
 });
 
-app.listen(config.port, () => {
+app.listen(config.port, async () => {
   console.log(`[GuildNet] Backend running on port ${config.port}`);
   console.log(`[GuildNet] Network: ${config.casperChainName}`);
   console.log(`[GuildNet] TaskCoordinator: ${config.contracts.taskCoordinator}`);
   console.log(`[GuildNet] x402 Facilitator: ${config.x402FacilitatorUrl}`);
+
+  try {
+    const { seedCoordinatorAgents } = await import("./agentStore");
+    await seedCoordinatorAgents();
+  } catch (err) {
+    console.warn(`[GuildNet] Agent seeding failed (non-fatal): ${err}`);
+  }
 });
