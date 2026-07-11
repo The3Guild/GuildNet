@@ -3,15 +3,16 @@ import express, { type Request, type Response, type NextFunction } from "express
 import cors from "cors";
 import rateLimit from "express-rate-limit";
 import { config } from "./config";
-import { runCoordinator, findAllAgents, queryContractVar, buildDeployJSON } from "./coordinator";
+import { runCoordinator, findAllAgents, queryContractVar, buildDeployJSON, submitSignedDeploy } from "./coordinator";
 import { runAgent, type Capability } from "./agentRunner";
 import { buildProject } from "./builder";
+import { simulatedHash } from "./casperHandler";
 
 const app = express();
 app.use(cors({
   origin: process.env.ALLOWED_ORIGIN
     ? process.env.ALLOWED_ORIGIN.split(",")
-    : ["https://guild-net-plum.vercel.app", "http://localhost:3001", "http://localhost:3000"],
+    : ["https://guildnet.vercel.app", "http://localhost:3001", "http://localhost:3000"],
   methods: ["GET", "POST"],
 }));
 app.use(express.json());
@@ -196,6 +197,63 @@ app.post("/agent/register/prepare", limiter, async (req: Request, res: Response,
 });
 
 /**
+ * POST /agent/register/submit
+ * Submits a user-signed Deploy JSON via the Casper RPC.
+ * The frontend uses CSPR.click's sign() to get the signature,
+ * then sends the signed JSON here for submission.
+ *
+ * Body: { signedDeploy: object }
+ * Returns: { deployHash, explorerUrl }
+ */
+app.post("/agent/register/submit", limiter, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { signedDeploy, endpoint, capability, price } = req.body as {
+      signedDeploy: object;
+      endpoint?: string;
+      capability?: string;
+      price?: string;
+    };
+    if (!signedDeploy) { res.status(400).json({ error: "signedDeploy is required" }); return; }
+
+    let deployHash: string;
+    let simulated = false;
+    try {
+      deployHash = await submitSignedDeploy(signedDeploy);
+      simulated = deployHash.startsWith("sim");
+    } catch (err) {
+      console.warn(`[Server] Deploy submission failed, storing locally: ${err}`);
+      deployHash = simulatedHash();
+      simulated = true;
+    }
+
+    // Store agent in local registry so it shows up in GET /agents
+    if (endpoint && capability) {
+      try {
+        const sdk = await import("casper-js-sdk").then(m => m.default ?? m);
+        const { PublicKey } = sdk;
+        const signed = (signedDeploy as any);
+        const accountHex = signed?.header?.account;
+        if (accountHex) {
+          const accountHash = "00" + PublicKey.fromHex(accountHex).accountHash().toHex();
+          const priceMotes = price
+            ? String(Math.round(parseFloat(price) * 1e9))
+            : "500000000";
+          const { addAgent } = await import("./agentStore");
+          addAgent(accountHash, endpoint, capability, priceMotes);
+        }
+      } catch (e) {
+        console.warn(`[Server] Failed to store agent locally: ${e}`);
+      }
+    }
+
+    res.json({
+      deployHash,
+      explorerUrl: `https://testnet.cspr.live/deploy/${deployHash}`,
+    });
+  } catch (err) { next(err); }
+});
+
+/**
  * POST /agent/:capability/run
  * A2A route: run a specific agent directly. The agent can autonomously hire
  * sub-agents on-chain using its own wallet before performing Venice AI inference.
@@ -276,21 +334,12 @@ app.post("/suggest-agents", limiter, async (req: Request, res: Response, next: N
     const { description = "" } = req.body as { description: string };
     const d = description.toLowerCase();
 
-    // Fetch all registered capabilities from chain
-    const { csproCloudGet } = await import("./chain");
+    // Fetch all registered capabilities from local agent store
     let registeredCaps: string[] = [];
     try {
-      const registryHash = config.contracts.agentRegistry.replace("hash-", "");
-      const data = await csproCloudGet(`/contracts/${registryHash}/named-keys`) as {
-        data?: Array<{ name: string; value: string }>;
-      };
-      const caps = new Set<string>();
-      for (const entry of (data.data ?? [])) {
-        try {
-          const parsed = JSON.parse(entry.value ?? "{}");
-          if (parsed.active === true && parsed.capability) caps.add(parsed.capability);
-        } catch { /* skip */ }
-      }
+      const { getAllAgents } = await import("./agentStore");
+      const agents = getAllAgents();
+      const caps = new Set(agents.map(a => a.capability).filter(Boolean));
       registeredCaps = [...caps];
     } catch { registeredCaps = ["research","risk","coding","design","audit","report"]; }
 

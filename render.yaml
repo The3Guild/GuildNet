@@ -3,11 +3,14 @@ services:
     name: guildnet-backend
     runtime: node
     rootDir: backend
-    buildCommand: npm install && npm run build
+    buildCommand: npm install --include=dev && npm run build
     startCommand: node dist/server.js
+    healthCheckPath: /health
     envVars:
       - key: NODE_ENV
         value: production
+      - key: ALLOWED_ORIGIN
+        value: https://guildnet.vercel.app
       - key: CASPER_NODE_RPC
         value: https://node.testnet.casper.network/rpc
       - key: CASPER_CHAIN_NAME
@@ -17,15 +20,19 @@ services:
       - key: COORDINATOR_KEY_ALGO
         value: ed25519
       - key: AGENT_REGISTRY_HASH
-        sync: false
+        value: hash-d99fca67a1671de057392109594fab2bb2f412643f7f6aa22ca0f297c60c00c3
       - key: AGENT_REPUTATION_HASH
-        sync: false
+        value: hash-87cb7a6c8e3a7a8fcc7aa1d4c0f8024859d54d300344ae8d53039b7f8ab11c69
       - key: TASK_COORDINATOR_HASH
-        sync: false
+        value: hash-2216cbbc233837a526e1b3b47ec1e1535258151ef779a1bd8476266898105ac1
       - key: CSPR_CLOUD_AUTH_TOKEN
         sync: false
+      - key: CSPR_CLOUD_BASE_URL
+        value: https://api.cspr.cloud
       - key: VENICE_API_KEY
         sync: false
+      - key: VENICE_BASE_URL
+        value: https://api.venice.ai/api/v1
       - key: X402_FACILITATOR_URL
         value: https://x402-facilitator.cspr.cloud
       - key: X402_ASSET_PACKAGE
