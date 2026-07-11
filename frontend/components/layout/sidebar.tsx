@@ -4,7 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
-import { LayoutDashboard, Bot, ClipboardList, Wallet, Settings, Wand2, PlusCircle, ChevronLeft, ChevronRight, X, Send } from "lucide-react";
+import { LayoutDashboard, Bot, ClipboardList, Wallet, Settings, Wand2, PlusCircle, ChevronLeft, ChevronRight, X } from "lucide-react";
 
 const NAV = [
   { icon: LayoutDashboard, label: "Dashboard", href: "/dashboard" },
@@ -12,7 +12,6 @@ const NAV = [
   { icon: Bot,             label: "Agents",    href: "/agents"    },
   { icon: Wand2,           label: "Builder",   href: "/builder"   },
   { icon: PlusCircle,      label: "Register",  href: "/register"  },
-  { icon: Send,            label: "Submit",    href: "/submit"    },
   { icon: Wallet,          label: "Payments",  href: "/payments"  },
   { icon: Settings,        label: "Settings",  href: "/settings"  },
 ];
