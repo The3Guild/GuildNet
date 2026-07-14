@@ -1,15 +1,30 @@
+# Dependencies
 node_modules/
-.next/
+
+# Build outputs
 dist/
+.next/
+smart-contract/target/
+*.log
+*.tsbuildinfo
+
+# Environment files (NEVER commit secrets)
 .env
 .env.local
-*.log
-.DS_Store
-smart-contract/target/
-smart-contract/.env
-smart-contract/keys/*.pem
-smart-contract/keys/*.key
+.env.*.local
 backend/.env
-backend/.env.example
+smart-contract/.env
+
+# Cryptographic keys (NEVER commit private keys)
 *.pem
 *.key
+*public_key_hex
+smart-contract/keys/
+backend/keys/
+
+# OS files
+.DS_Store
+
+# IDE
+.vscode/
+.idea/

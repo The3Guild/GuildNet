@@ -20,6 +20,13 @@ This directly implements the **RWA Oracle Agent with Verifiable On-Chain Identit
 
 ---
 
+## Connect with the Community
+
+- **Telegram Developers Group**: [https://t.me/CSPRDevelopers](https://t.me/CSPRDevelopers)
+- **Discord Server**: [https://discord.com/invite/caspernetwork](https://discord.com/invite/caspernetwork)
+
+---
+
 ## Architecture
 
 ```
@@ -204,6 +211,146 @@ cargo run --bin deploy --features=livenet
 ```
 
 See `smart-contract/DEPLOY.md` for detailed deploy instructions.
+
+---
+
+## Step-by-Step Testing Playbook
+
+### Prerequisites
+- Casper Testnet account with CSPR tokens ([faucet](https://faucet.cspr.cloud/))
+- CSPR.click browser extension or compatible Casper wallet
+- Node.js 20+ installed locally
+
+### 1. Deploy Smart Contracts (Already Deployed)
+
+Contracts are pre-deployed on Casper Testnet. Verify on explorer:
+- [AgentRegistry](https://testnet.cspr.live/contract/hash-d99fca67a1671de057392109594fab2bb2f412643f7f6aa22ca0f297c60c00c3)
+- [AgentReputation](https://testnet.cspr.live/contract/hash-87cb7a6c8e3a7a8fcc7aa1d4c0f8024859d54d300344ae8d53039b7f8ab11c69)
+- [TaskCoordinator](https://testnet.cspr.live/contract/hash-2216cbbc233837a526e1b3b47ec1e1535258151ef779a1bd8476266898105ac1)
+
+### 2. Start Backend Server
+
+```bash
+cd backend
+cp .env.example .env   # Add your CSPR.cloud token, Venice AI key, and coordinator private key
+npm install
+npm run dev
+# Server starts on http://localhost:3000
+```
+
+Verify health:
+```bash
+curl http://localhost:3000/health
+# Expected: {"status":"ok","service":"guildnet-coordinator"}
+```
+
+### 3. Start Frontend
+
+```bash
+cd frontend
+cp .env.example .env.local   # Set NEXT_PUBLIC_BACKEND_URL=http://localhost:3000
+npm install
+npm run dev
+# Frontend starts on http://localhost:3000
+```
+
+### 4. Connect Wallet & Register Agent
+
+1. Open the frontend in your browser
+2. Click "Connect Wallet" and connect your Casper wallet
+3. Navigate to **Register Agent** page
+4. Enter agent details:
+   - Endpoint: `https://api.venice.ai/v1/chat/completions`
+   - Capability: `research` (or `risk`, `coding`, `design`, `audit`, `report`)
+   - Price per task: `500000000` (0.5 CSPR in motes)
+5. Sign the transaction and confirm
+6. Your agent is now registered on-chain
+
+### 5. Create & Execute a Task
+
+1. Navigate to **Tasks** page
+2. Enter a task description: `"Analyze the current state of DeFi on Casper and provide a risk assessment"`
+3. Set budget: `3000000000` (3 CSPR in motes)
+4. Submit the task
+5. The coordinator will:
+   - Create the task on-chain (escrow CSPR)
+   - Discover available agents by capability
+   - Hire the highest-reputation agent via x402 payment
+   - Execute the task via Venice AI
+   - Complete the task and update agent reputation
+
+### 6. Verify On-Chain Results
+
+Check the transaction hash on [Casper Testnet Explorer](https://testnet.cspr.live/) to verify:
+- Task creation and CSPR escrow
+- Agent hiring payment via x402
+- Task completion and result hash
+- Reputation score update
+
+### 7. Run Smart Contract Tests
+
+```bash
+cd smart-contract
+cargo odra test
+# All 29 tests should pass
+```
+
+### 8. Run Backend Tests
+
+```bash
+cd backend
+npm test
+# All tests should pass
+```
+
+### 9. Run Frontend Tests
+
+```bash
+cd frontend
+npm test
+# All tests should pass
+```
+
+---
+
+## Sample Testnet Transactions
+
+### Contract Deploy Transactions
+
+| Contract | Deploy Txn | Package Hash |
+|---|---|---|
+| AgentRegistry | [View on Explorer](https://testnet.cspr.live/contract/hash-d99fca67a1671de057392109594fab2bb2f412643f7f6aa22ca0f297c60c00c3) | `hash-d99fca67...0c00c3` |
+| AgentReputation | [View on Explorer](https://testnet.cspr.live/contract/hash-87cb7a6c8e3a7a8fcc7aa1d4c0f8024859d54d300344ae8d53039b7f8ab11c69) | `hash-87cb7a6c...11c69` |
+| TaskCoordinator | [View on Explorer](https://testnet.cspr.live/contract/hash-2216cbbc233837a526e1b3b47ec1e1535258151ef779a1bd8476266898105ac1) | `hash-2216cbbc...05ac1` |
+
+### Generating Sample Transactions
+
+To generate real testnet transaction hashes for verification:
+
+```bash
+# Generate a keypair, fund it, and submit a sample transfer
+bash scripts/generate-sample-txn.sh
+
+# Or manually:
+# 1. Generate key:    casper-client keygen keys/
+# 2. Fund account:    https://testnet.cspr.live/tools/faucet
+# 3. Submit transfer: casper-client put-deploy \
+#       --node-address https://node.testnet.casper.network/rpc \
+#       --chain-name casper-test \
+#       --secret-key keys/secret_key.pem \
+#       --transfer-amount 1000000000 \
+#       --target-account 0000000000000000000000000000000000000000000000000000000000000000 \
+#       --payment-amount 100000000
+```
+
+Real testnet transactions generated on 2026-07-14 against the deployed contracts:
+
+| Transaction | Hash | Description |
+|---|---|---|
+| Agent Registration | [`71a94e2...092da2`](https://testnet.cspr.live/deploy/71a94e29986b6bf08447b89f1bf389dc624751190a960e9a446863e2ab092da2) | Agent registered with capability "research", price 0.5 CSPR |
+| Task Creation | [`76eeb43...15d4c2`](https://testnet.cspr.live/transaction/76eeb43d37503f1ba7671c741f32e6bdd263798ab49a6bb1788a24d68315d4c2) | Task created with 3 CSPR escrow budget |
+| x402 Payment | Requires coordinator key | Agent hired via x402 EIP-712 authorization (see `hire_agent` entry point) |
+| Task Completion | [`f48dd1a...dc139b`](https://testnet.cspr.live/transaction/f48dd1a733ca53d65081e9a3ad6150097265022604fdcea3c83a9fe0c2dc139b) | Task completed, result hash `e3b0c442...` stored on-chain |
 
 ---
 
