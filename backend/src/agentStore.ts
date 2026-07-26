@@ -9,7 +9,10 @@ export interface AgentRecord {
   active:           boolean;
   reputationScore:  number;
   tasksCompleted:   number;
+  tasksFailed:      number;
+  lastUpdated:      string;   // ISO timestamp of last reputation change
   source:           "on-chain" | "local";
+  demo?:            boolean;  // true for seeded coordinator agents
 }
 
 const STORE_PATH = path.resolve(__dirname, "..", "data", "agents.json");
@@ -34,7 +37,12 @@ function loadLocal(): void {
           removed++;
           continue;
         }
-        agents.set(k, { ...rec, source: rec.source ?? "local" });
+        agents.set(k, {
+          ...rec,
+          source:     rec.source ?? "local",
+          tasksFailed: rec.tasksFailed ?? 0,
+          lastUpdated: rec.lastUpdated ?? new Date(0).toISOString(),
+        });
       }
       if (removed > 0) {
         console.warn(`[AgentStore] Removed ${removed} agents with invalid account hashes`);
@@ -106,6 +114,8 @@ export function addAgent(
     active: true,
     reputationScore: 5000,
     tasksCompleted: 0,
+    tasksFailed: 0,
+    lastUpdated: new Date().toISOString(),
     source: "local",
   });
   saveLocal();
@@ -173,9 +183,22 @@ export async function seedCoordinatorAgents(): Promise<void> {
     const priceMotes = "500000000";
     const caps = ["research", "risk", "coding", "design", "audit", "report"];
     for (const cap of caps) {
-      addAgent(acctHash, `coordinator://${cap}`, cap, priceMotes);
+      agents.set(acctHash, {
+        accountHash:      acctHash,
+        endpoint:         `coordinator://${cap}`,
+        capability:       cap,
+        pricePerTask:     priceMotes,
+        active:           true,
+        reputationScore:  5000,
+        tasksCompleted:   0,
+        tasksFailed:      0,
+        lastUpdated:      new Date().toISOString(),
+        source:           "local",
+        demo:             true,
+      });
     }
-    console.log(`[AgentStore] Seeded ${caps.length} coordinator agents with hash ${acctHash.slice(0, 14)}…`);
+    saveLocal();
+    console.log(`[AgentStore] Seeded ${caps.length} coordinator agents (demo=true) with hash ${acctHash.slice(0, 14)}…`);
   } catch (err) {
     console.warn(`[AgentStore] Could not seed coordinator agents: ${err}`);
   }

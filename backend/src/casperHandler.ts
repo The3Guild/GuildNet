@@ -1,7 +1,16 @@
 import axios, { AxiosInstance } from "axios";
 
-const SDK = require("casper-js-sdk");
-const { TypedJSON } = require("typedjson");
+let sdkMod: typeof import("casper-js-sdk") | null = null;
+let typedJsonMod: typeof import("typedjson") | null = null;
+
+async function loadSdk() {
+  if (!sdkMod) sdkMod = await import("casper-js-sdk");
+  return sdkMod;
+}
+async function loadTypedJson() {
+  if (!typedJsonMod) typedJsonMod = await import("typedjson");
+  return typedJsonMod;
+}
 
 /**
  * Standalone RPC handler using standard axios (not fetch adapter).
@@ -20,7 +29,8 @@ export class AxiosHandler {
   }
 
   async processCall(payload: object): Promise<any> {
-    const ser = new TypedJSON(SDK.RpcRequest);
+    const [SDK, { TypedJSON }] = await Promise.all([loadSdk(), loadTypedJson()]);
+    const ser = new TypedJSON(SDK.RpcRequest as any);
     let jsonStr: string;
     try {
       jsonStr = ser.stringify(payload);

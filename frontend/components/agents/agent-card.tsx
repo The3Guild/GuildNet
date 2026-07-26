@@ -1,6 +1,7 @@
 "use client";
 
-import { Star, Zap, Shield } from "lucide-react";
+import Link from "next/link";
+import { Star, Zap, Shield, FlaskConical } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export interface Agent {
@@ -10,11 +11,13 @@ export interface Agent {
   price: number;
   rating: number;
   tasks: number;
+  tasksFailed?: number;
   reputationScore?: number;
   status: "online" | "busy" | "offline";
   skills: string[];
   accountHash?: string;
   source?: "on-chain" | "local";
+  demo?: boolean;
 }
 
 const GRADIENTS: Record<string, string> = {
@@ -29,7 +32,7 @@ const EMOJIS: Record<string, string> = {
   Research: "🔍", Risk: "⚠️", Coding: "💻", Design: "🎨", Report: "📄", Audit: "✅",
 };
 
-export function AgentCard({ name, type, description, price, rating, tasks, reputationScore, status, skills, source }: Agent) {
+export function AgentCard({ name, type, description, price, rating, tasks, reputationScore, status, skills, accountHash, source, demo }: Agent) {
   const gradient = GRADIENTS[type] ?? "from-cyan-500 to-violet-400";
   const emoji    = EMOJIS[type] ?? "🤖";
   const isOnline = status === "online";
@@ -44,12 +47,21 @@ export function AgentCard({ name, type, description, price, rating, tasks, reput
             {emoji}
           </div>
           <div>
-            <h3 className="font-semibold text-white text-sm group-hover:text-cyan-400 transition-colors">{name}</h3>
+            <h3 className="font-semibold text-white text-sm group-hover:text-cyan-400 transition-colors">
+              {accountHash ? (
+                <Link href={`/agents/${accountHash}`}>{name}</Link>
+              ) : name}
+            </h3>
             <div className="flex items-center gap-1.5 mt-0.5">
               <span className={cn("w-1.5 h-1.5 rounded-full", isOnline ? "bg-green-400 animate-pulse" : "bg-slate-500")} />
               <span className="text-[11px] text-slate-500 capitalize">{status}</span>
               {isOnChain && (
                 <span className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-500/10 border border-cyan-500/20 text-cyan-400">on-chain</span>
+              )}
+              {demo && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center gap-0.5">
+                  <FlaskConical className="w-2 h-2" /> demo
+                </span>
               )}
             </div>
           </div>

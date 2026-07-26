@@ -76,6 +76,12 @@ export interface SettleResult {
   errorMessage?: string;
 }
 
+export interface SignedAuthorization {
+  signature:     string;
+  publicKey:     string;
+  authorization: ExactCasperAuthorization;
+}
+
 // ── EIP-712 typed-data hashing (Casper flavour) ───────────────────────────────
 //
 // Casper x402 uses EIP-712 structured-data signing:
@@ -108,16 +114,100 @@ function encodeAddress(value: string): Buffer {
   return Buffer.from(hex.padStart(64, "0"), "hex");
 }
 
+// ── Coordinator key loading (shared between x402 + coordinator) ──────────────
+
+interface CoordinatorKey {
+  key:        any;
+  publicKey:  any;
+  accountHash: string; // "00" + 64 hex
+}
+
+let _cachedKey: CoordinatorKey | null = null;
+
+/**
+ * Load the coordinator private key from disk (cached after first call).
+ * Used by both x402 settlement and coordinator contract calls.
+ */
+export async function loadCoordinatorKey(): Promise<CoordinatorKey> {
+  if (_cachedKey) return _cachedKey;
+
+  const casper = await import("casper-js-sdk");
+  const { KeyAlgorithm, PrivateKey } = casper.default ?? casper;
+  const fs = await import("fs/promises");
+
+  let pem: string;
+  try {
+    pem = await fs.readFile(config.coordinatorKeyPath, "utf-8");
+  } catch {
+    throw new Error(
+      `[x402] Coordinator key not found at ${config.coordinatorKeyPath}. Generate one with: casper-client keygen ${config.coordinatorKeyPath.replace("/secret_key.pem", "")}`
+    );
+  }
+  const algo = config.coordinatorKeyAlgo === "secp256k1"
+    ? KeyAlgorithm.SECP256K1
+    : KeyAlgorithm.ED25519;
+  let key: InstanceType<typeof PrivateKey>;
+  try {
+    key = PrivateKey.fromPem(pem, algo);
+  } catch {
+    throw new Error(`[x402] Failed to parse coordinator key at ${config.coordinatorKeyPath} as ${config.coordinatorKeyAlgo}`);
+  }
+
+  const accountHash = "00" + key.publicKey.accountHash().toHex();
+  _cachedKey = { key, publicKey: key.publicKey, accountHash };
+  return _cachedKey;
+}
+
+/**
+ * Return the coordinator's payer account hash ("00" + 64 hex).
+ * Convenience wrapper over loadCoordinatorKey().
+ */
+export async function getPayerAccountHash(): Promise<string> {
+  const { accountHash } = await loadCoordinatorKey();
+  return accountHash;
+}
+
+/**
+ * Build an EIP-712 digest AND sign it with the coordinator key.
+ * Returns the signature, public key, and authorization together.
+ *
+ * This consolidates the signing logic used by both settleX402Payment()
+ * and coordinator.ts hireAndPay().
+ */
+export async function signAuthorization(
+  auth: ExactCasperAuthorization,
+): Promise<SignedAuthorization> {
+  const { key, publicKey } = await loadCoordinatorKey();
+
+  const digest    = buildEIP712Digest(
+    auth,
+    config.x402.tokenName,
+    config.x402.tokenVersion,
+    config.x402.network,
+    config.x402.assetPackage,
+  );
+  const signature = await key.signAndAddAlgorithmBytes(digest);
+  const sigHex    = Buffer.from(signature).toString("hex");
+
+  return {
+    signature:     sigHex,
+    publicKey:     publicKey.toHex(),
+    authorization: auth,
+  };
+}
+
 /**
  * Compute the EIP-712 typed-data hash for a Casper x402 TransferWithAuthorization.
  *
  * Uses the Casper-specific domain format (name, version, chain_name, contract_package_hash)
  * matching the @make-software/casper-x402 package and CSPR.cloud facilitator.
+ *
+ * When called with just (auth), uses config.x402 defaults.
  */
 export function buildEIP712Digest(
   auth:             ExactCasperAuthorization,
-  tokenName:        string,
-  tokenVersion:     string,
+  tokenName?:       string,
+  tokenVersion?:    string,
   network?:         string,
   assetPackage?:    string,
 ): Buffer {
@@ -129,14 +219,17 @@ export function buildEIP712Digest(
   );
 
   // Normalise asset hex: strip "0x" prefix and pad to 32 bytes (64 hex chars)
-  const assetHex = (assetPackage ?? "").replace(/^0x/, "").padStart(64, "0");
+  const assetHex = (assetPackage ?? config.x402.assetPackage).replace(/^0x/, "").padStart(64, "0");
+  const resolvedName    = tokenName    ?? config.x402.tokenName;
+  const resolvedVersion = tokenVersion ?? config.x402.tokenVersion;
+  const resolvedNetwork = network      ?? config.x402.network;
 
   const domainSeparator = keccak256(
     Buffer.concat([
       DOMAIN_TYPE_HASH,
-      keccak256(Buffer.from(tokenName)),
-      keccak256(Buffer.from(tokenVersion)),
-      keccak256(Buffer.from(network ?? "")),
+      keccak256(Buffer.from(resolvedName)),
+      keccak256(Buffer.from(resolvedVersion)),
+      keccak256(Buffer.from(resolvedNetwork)),
       Buffer.from(assetHex, "hex"),
     ])
   );
@@ -203,46 +296,45 @@ function isValidAccountHash(hash: string): boolean {
 
 // ── Main exported function ────────────────────────────────────────────────────
 
+export interface SettleX402Result {
+  hash:         string;   // Casper deploy hash
+  from:         string;   // payer account hash
+  to:           string;   // payee account hash
+  amount:       string;   // token amount in base units
+  resourceUrl:  string;
+}
+
 /**
  * Execute a real Casper x402 payment from the coordinator account to an agent.
  *
  * Steps:
- *   1. Load coordinator private key via casper-js-sdk
+ *   1. Load coordinator private key via shared loadCoordinatorKey()
  *   2. Build a TransferAuthorization (EIP-712 typed data)
  *   3. Sign the EIP-712 digest with the coordinator's key
  *   4. POST /verify — validate signature off-chain (no gas)
  *   5. POST /settle — submit CEP-18 transfer on Casper Testnet
- *   6. Return the Casper deploy hash as proof of payment
+ *   6. Return the full payment info for persistence
  *
  * @param payeeAccountHash  Casper account-hash of the agent being paid ("00<64hex>")
  * @param amountBaseUnits   Payment amount in token base units (e.g. "1000000000" = 1 WCSPR)
  * @param resourceUrl       URL label for the payment (e.g. the agent's endpoint)
- * @returns deploy hash of the settled transaction
+ * @returns full payment info including deploy hash, from/to, and amount
  */
 export async function settleX402Payment(
   payeeAccountHash: string,
   amountBaseUnits: string,
   resourceUrl: string,
-): Promise<string> {
+): Promise<SettleX402Result> {
   if (!isValidAccountHash(payeeAccountHash)) {
     throw new Error(
       `[x402] Invalid payTo account-hash: "${payeeAccountHash}" — must be "00" followed by 64 hex chars (${payeeAccountHash.length} chars total)`
     );
   }
-  const casper = await import("casper-js-sdk");
-  const { KeyAlgorithm, PrivateKey } = casper.default ?? casper;
 
-  // Load coordinator key
-  const fs = await import("fs/promises");
-  const pemContent = await fs.readFile(config.coordinatorKeyPath, "utf-8");
-  const algo = config.coordinatorKeyAlgo === "secp256k1"
-    ? KeyAlgorithm.SECP256K1
-    : KeyAlgorithm.ED25519;
-  const privateKey = PrivateKey.fromPem(pemContent, algo);
-
-  // Derive payer account hash ("00" + hex)
-  const payerAccountHash = "00" + privateKey.publicKey.accountHash().toHex();
-  const payerPublicKey   = privateKey.publicKey.toHex();
+  // Load coordinator key via shared helper
+  const coordinator = await loadCoordinatorKey();
+  const payerAccountHash = coordinator.accountHash;
+  const payerPublicKey   = coordinator.publicKey.toHex();
 
   if (!isValidAccountHash(payerAccountHash)) {
     throw new Error(
@@ -265,10 +357,8 @@ export async function settleX402Payment(
     nonce,
   };
 
-  // Sign EIP-712 digest (Casper domain with chain_name + contract_package_hash)
-  const digest    = buildEIP712Digest(authorization, config.x402.tokenName, config.x402.tokenVersion, config.x402.network, config.x402.assetPackage);
-  const signature = await privateKey.signAndAddAlgorithmBytes(digest);
-  const sigHex    = Buffer.from(signature).toString("hex");
+  // Sign via shared helper
+  const { signature: sigHex } = await signAuthorization(authorization);
 
   const payload: ExactCasperPayload = {
     signature:     sigHex,
@@ -335,5 +425,11 @@ export async function settleX402Payment(
   console.log(`[x402] ✓ Settled. Deploy hash: ${settleResult.transaction}`);
   console.log(`[x402] Explorer: https://testnet.cspr.live/deploy/${settleResult.transaction}`);
 
-  return settleResult.transaction;
+  return {
+    hash:        settleResult.transaction,
+    from:        payerAccountHash,
+    to:          payeeAccountHash,
+    amount:      amountBaseUnits,
+    resourceUrl,
+  };
 }
