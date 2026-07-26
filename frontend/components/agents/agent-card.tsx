@@ -9,10 +9,10 @@ export interface Agent {
   type: string;
   description: string;
   price: number;
-  rating: number;
+  rating: number | null;
   tasks: number;
   tasksFailed?: number;
-  reputationScore?: number;
+  reputationScore?: number | null;
   status: "online" | "busy" | "offline";
   skills: string[];
   accountHash?: string;
@@ -44,10 +44,10 @@ export function AgentCard({ name, type, description, price, rating, tasks, reput
   const gradient = GRADIENTS[type] ?? "from-cyan-500 to-violet-400";
   const emoji    = EMOJIS[type] ?? "🤖";
   const isOnline = status === "online";
-  const repScore = reputationScore ?? 5000;
+  const repScore = reputationScore ?? null;
   const isOnChain = source === "on-chain";
-  const rep = getRepLevel(repScore);
-  const repPercent = Math.round((repScore / 10000) * 100);
+  const rep = repScore != null ? getRepLevel(repScore) : null;
+  const repPercent = repScore != null ? Math.round((repScore / 10000) * 100) : 0;
 
   return (
     <div className="glass-card p-4 flex flex-col group glow-hover transition-all duration-200 hover:-translate-y-0.5">
@@ -76,10 +76,12 @@ export function AgentCard({ name, type, description, price, rating, tasks, reput
             </div>
           </div>
         </div>
-        <div className="flex items-center gap-1 px-2 py-0.5 bg-amber-500/8 border border-amber-500/15 rounded-lg flex-shrink-0">
-          <Star className="w-3 h-3 text-amber-400 fill-amber-400" />
-          <span className="text-[11px] font-medium text-amber-300">{rating.toFixed(1)}</span>
-        </div>
+        {rating != null && (
+          <div className="flex items-center gap-1 px-2 py-0.5 bg-amber-500/8 border border-amber-500/15 rounded-lg flex-shrink-0">
+            <Star className="w-3 h-3 text-amber-400 fill-amber-400" />
+            <span className="text-[11px] font-medium text-amber-300">{rating.toFixed(1)}</span>
+          </div>
+        )}
       </div>
 
       <p className="text-xs text-slate-400 leading-relaxed mb-3 flex-1 line-clamp-2">{description}</p>
@@ -88,13 +90,27 @@ export function AgentCard({ name, type, description, price, rating, tasks, reput
       <div className="mb-3">
         <div className="flex items-center justify-between mb-1">
           <div className="flex items-center gap-1.5">
-            <Shield className={cn("w-3 h-3", rep.color)} />
-            <span className={cn("text-[11px] font-medium", rep.color)}>{rep.label}</span>
+            {rep ? (
+              <>
+                <Shield className={cn("w-3 h-3", rep.color)} />
+                <span className={cn("text-[11px] font-medium", rep.color)}>{rep.label}</span>
+              </>
+            ) : (
+              <>
+                <Shield className="w-3 h-3 text-slate-600" />
+                <span className="text-[11px] font-medium text-slate-600">Unrated</span>
+              </>
+            )}
           </div>
-          <span className="text-[10px] text-slate-600 tabular-nums">{repScore.toLocaleString()}/10000</span>
+          <span className="text-[10px] text-slate-600 tabular-nums">
+            {repScore != null ? `${repScore.toLocaleString()}/10000` : "—"}
+          </span>
         </div>
         <div className="rep-bar-track">
-          <div className={cn("rep-bar-fill", rep.cls)} style={{ width: `${repPercent}%` }} />
+          <div
+            className={cn("rep-bar-fill", rep ? rep.cls : "bg-slate-600")}
+            style={{ width: repScore != null ? `${repPercent}%` : "0%" }}
+          />
         </div>
       </div>
 
@@ -110,7 +126,7 @@ export function AgentCard({ name, type, description, price, rating, tasks, reput
           <span className="text-[11px] text-slate-500 ml-1">CSPR/task</span>
         </div>
         <div className="flex items-center gap-3">
-          {repScore >= 8000 && (
+          {repScore != null && repScore >= 8000 && (
             <div className="flex items-center gap-1 text-[11px]" title="Elite reputation">
               <Trophy className="w-3 h-3 text-yellow-400" />
             </div>

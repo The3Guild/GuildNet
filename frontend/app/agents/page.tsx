@@ -7,7 +7,7 @@ import { useSearchParams } from "next/navigation";
 import { Plus, Search } from "lucide-react";
 import Link from "next/link";
 
-const CATEGORIES = ["All", "Research", "Risk", "Coding", "Design", "Report"];
+const CATEGORIES = ["All", "Research", "Risk", "Coding", "Design", "Audit", "Report"];
 
 export default function AgentsPage() {
   const { agents, loading, filter, setFilter } = useChainAgents();

@@ -7,14 +7,13 @@ import { shortenAddress } from "@/lib/utils";
 import { ExternalLink, ArrowUpRight, ArrowDownLeft, Wallet, Receipt, Loader2, TrendingUp, Users, CreditCard } from "lucide-react";
 
 interface Settlement {
-  id: string;
-  payer: string;
-  payee: string;
-  amountBaseUnits: string;
-  amountCSPR: string;
-  resource: string;
-  transactionHash: string;
-  timestamp: number;
+  hash:        string;
+  from:        string;
+  to:          string;
+  amount:      string;
+  capability:  string;
+  taskId:      string;
+  timestamp:   string;
 }
 
 export default function PaymentsPage() {
@@ -32,10 +31,10 @@ export default function PaymentsPage() {
   }, []);
 
   const totalOut = settlements
-    .filter(s => !address || s.payer.toLowerCase() === address.toLowerCase())
-    .reduce((s, x) => s + parseFloat(x.amountCSPR || "0"), 0);
+    .filter(s => !address || s.from.toLowerCase() === address.toLowerCase())
+    .reduce((s, x) => s + (parseFloat(x.amount || "0") / 1e9), 0);
 
-  const uniqueAgents = new Set(settlements.map(s => s.payee)).size;
+  const uniqueAgents = new Set(settlements.map(s => s.to)).size;
 
   return (
     <div className="space-y-5 max-w-5xl mx-auto w-full">
@@ -103,9 +102,10 @@ export default function PaymentsPage() {
             <div className="space-y-2">
               <h2 className="text-sm font-semibold text-white mb-2">Settled Payments</h2>
               {settlements.map(s => {
-                const isPayer = address && s.payer.toLowerCase() === address.toLowerCase();
+                const isPayer = address && s.from.toLowerCase() === address.toLowerCase();
+                const amountCSPR = (parseFloat(s.amount || "0") / 1e9).toFixed(2);
                 return (
-                  <div key={s.id} className="glass-card px-4 py-3 flex items-center gap-3 hover:bg-white/[0.03] transition-colors">
+                  <div key={s.hash} className="glass-card px-4 py-3 flex items-center gap-3 hover:bg-white/[0.03] transition-colors">
                     <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${isPayer ? "bg-red-500/8" : "bg-green-500/8"}`}>
                       {isPayer
                         ? <ArrowUpRight className="w-4 h-4 text-red-400" />
@@ -113,21 +113,21 @@ export default function PaymentsPage() {
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm text-white truncate">
-                        {isPayer ? `Paid ${shortenAddress(s.payee)}` : `Received from ${shortenAddress(s.payer)}`}
+                        {isPayer ? `Paid ${shortenAddress(s.to)}` : `Received from ${shortenAddress(s.from)}`}
                       </p>
                       <div className="flex items-center gap-2">
-                        <code className="text-[11px] text-slate-500 truncate">{s.transactionHash.slice(0, 16)}…</code>
-                        {s.resource && (
-                          <span className="text-[10px] text-slate-600 hidden sm:inline">· {s.resource}</span>
+                        <code className="text-[11px] text-slate-500 truncate">{s.hash.slice(0, 16)}…</code>
+                        {s.capability && (
+                          <span className="text-[10px] text-slate-600 hidden sm:inline">· {s.capability}</span>
                         )}
                       </div>
                     </div>
                     <div className="flex items-center gap-2 flex-shrink-0">
                       <span className={`text-sm font-medium tabular-nums ${isPayer ? "text-red-400" : "text-green-400"}`}>
-                        {isPayer ? "−" : "+"}{s.amountCSPR}
+                        {isPayer ? "−" : "+"}{amountCSPR}
                       </span>
                       <span className="text-[11px] text-slate-600 hidden sm:inline">CSPR</span>
-                      <a href={`${CASPER_EXPLORER}/deploy/${s.transactionHash}`} target="_blank" rel="noreferrer"
+                      <a href={`${CASPER_EXPLORER}/deploy/${s.hash}`} target="_blank" rel="noreferrer"
                         className="text-slate-500 hover:text-cyan-400 transition-colors p-1">
                         <ExternalLink className="w-3 h-3" />
                       </a>

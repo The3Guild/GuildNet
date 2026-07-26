@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { CONTRACTS } from "@/lib/constants";
 import { Award, ExternalLink, Copy, CheckCircle, AlertCircle, Send, Users, Github, FileText, Tag, Globe, Loader2 } from "lucide-react";
 
 const TRACKS = [
@@ -57,9 +58,9 @@ ${form.team ? `## Team Members\n${form.team}` : ""}
 ### Smart Contracts (Casper Testnet)
 | Contract | Package Hash |
 |---|---|
-| AgentRegistry | \`hash-d99fca67a1671de057392109594fab2bb2f412643f7f6aa22ca0f297c60c00c3\` |
-| AgentReputation | \`hash-87cb7a6c8e3a7a8fcc7aa1d4c0f8024859d54d300344ae8d53039b7f8ab11c69\` |
-| TaskCoordinator | \`hash-2216cbbc233837a526e1b3b47ec1e1535258151ef779a1bd8476266898105ac1\` |
+| AgentRegistry | \`${CONTRACTS.AGENT_REGISTRY}\` |
+| AgentReputation | \`${CONTRACTS.AGENT_REPUTATION}\` |
+| TaskCoordinator | \`${CONTRACTS.TASK_COORDINATOR}\` |
 
 ### Architecture
 - Backend: TypeScript/Express (port 3000)
@@ -245,7 +246,7 @@ ${form.team ? `## Team Members\n${form.team}` : ""}
               className="flex items-center gap-2 text-sm text-slate-400 hover:text-cyan-400 transition-colors">
               <Globe className="w-3.5 h-3.5" /> Casper Buildathon <ExternalLink className="w-3 h-3 ml-auto" />
             </a>
-            <a href="https://testnet.cspr.live/contract/hash-d99fca67a1671de057392109594fab2bb2f412643f7f6aa22ca0f297c60c00c3" target="_blank" rel="noreferrer"
+            <a href={`https://testnet.cspr.live/contract/${CONTRACTS.AGENT_REGISTRY}`} target="_blank" rel="noreferrer"
               className="flex items-center gap-2 text-sm text-slate-400 hover:text-cyan-400 transition-colors">
               <ExternalLink className="w-3.5 h-3.5" /> AgentRegistry Explorer <ExternalLink className="w-3 h-3 ml-auto" />
             </a>

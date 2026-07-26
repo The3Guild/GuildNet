@@ -15,7 +15,7 @@
 import crypto from "crypto";
 import { config } from "./config";
 import { csproCloudGet } from "./chain";
-import { buildEIP712Digest, signAuthorization, loadCoordinatorKey, type ExactCasperAuthorization } from "./x402";
+import { signAuthorization, loadCoordinatorKey, type ExactCasperAuthorization } from "./x402";
 import { settleX402Payment } from "./x402";
 import { veniceChat } from "./agents/venice";
 import { withRetry } from "./casperHandler";
@@ -134,8 +134,33 @@ type ArgValue =
   | { type: "U512"; value: string }
   | { type: "Key"; value: string }
   | { type: "ByteArray"; value: Uint8Array }
+  | { type: "Bytes"; value: Uint8Array }
   | { type: "PublicKey"; value: any }
   | { type: "OptionString"; value: string | null };
+
+/**
+ * Build a CL ByteArray arg with an explicit type tag override.
+ * Used for parameters where the contract expects CLBytes (tag 16)
+ * rather than CLByteArray (tag 12). The casper-js-sdk only exposes
+ * newCLByteArray, so we construct the raw bytesrepr encoding manually.
+ */
+function buildCLBytesArg(sdk: any, value: Uint8Array): any {
+  const { CLValue } = sdk;
+  // Casper CLBytes serialization: [type_tag=16] [length: u32 LE] [data...]
+  const tag = 16;
+  const len = value.length;
+  const buf = new Uint8Array(1 + 4 + len);
+  buf[0] = tag;
+  new DataView(buf.buffer).setUint32(1, len, true);
+  buf.set(value, 5);
+  // Use the SDK's internal CLValue parser to reconstitute from raw bytes
+  const { CLValueParser } = sdk;
+  if (CLValueParser?.fromBytes) {
+    return CLValueParser.fromBytes(buf).result;
+  }
+  // Fallback: use ByteArray (may fail if contract strictly checks type tag)
+  return CLValue.newCLByteArray(value);
+}
 
 function buildArgs(
   sdk: any,
@@ -161,6 +186,9 @@ function buildArgs(
         case "ByteArray":
           args.insert(k, CLValue.newCLByteArray(v.value));
           break;
+        case "Bytes":
+          args.insert(k, buildCLBytesArg(sdk, v.value));
+          break;
         case "PublicKey":
           args.insert(k, CLValue.newCLPublicKey(v.value));
           break;
@@ -179,6 +207,57 @@ function buildArgs(
   return args;
 }
 
+// ── VmCasperV2 runtime patch for payable entry points ─────────────────────────
+//
+// Casper 2.0 (Condor) places transferred_value inside
+// TransactionRuntimeParams::VmCasperV2, but casper-js-sdk v5.0.12 only
+// supports VmCasperV1 (no transferred_value field). This patch overrides
+// the runtime's toBytes() and toJSON() to emit VmCasperV2 with the correct
+// transferred_value.
+
+function patchRuntimeForPayable(
+  builder: any,
+  transferredValueMotes: bigint,
+): void {
+  // Access the builder's internal invocation target (protected property)
+  const target = builder._invocationTarget ?? builder._transactionInvocationTarget;
+  if (!target?.stored?.runtime) return;
+
+  const runtime = target.stored.runtime;
+  const tv = transferredValueMotes;
+
+  // Override toBytes to emit VmCasperV2 with transferred_value
+  // VmCasperV2 variant bytes: [tag=1] [u64 LE transferred_value] [Option seed=None=0x00]
+  runtime.toBytes = function () {
+    const variantBytes = new Uint8Array(10);
+    variantBytes[0] = 0x01; // VmCasperV2 tag
+    const view = new DataView(variantBytes.buffer);
+    const val = BigInt(tv);
+    view.setUint32(1, Number(val & 0xFFFFFFFFn), true);
+    view.setUint32(5, Number(val >> 32n), true);
+    // seed = None (byte 9 = 0x00, already zeroed)
+
+    // Wrap in CalltableSerialization format (single field)
+    const result = new Uint8Array(4 + 2 + 4 + variantBytes.length);
+    const rv = new DataView(result.buffer);
+    rv.setUint32(0, 1, true);       // num_fields = 1
+    rv.setUint16(4, 0, true);       // field_index = 0
+    rv.setUint32(6, 10, true);      // field_length = 10
+    result.set(variantBytes, 10);
+    return result;
+  };
+
+  // Override toJSON so the JSON also reflects VmCasperV2
+  runtime.toJSON = function () {
+    return JSON.stringify({
+      VmCasperV2: {
+        transferred_value: String(tv),
+        seed: null,
+      },
+    });
+  };
+}
+
 // ── Build an unsigned deploy JSON for wallet signing ────────────────────────
 
 export async function buildDeployJSON(
@@ -188,6 +267,7 @@ export async function buildDeployJSON(
   initiatorPublicKeyHex: string,
   paymentMotes?: bigint,
   legacy?: boolean,
+  transferredValue?: bigint,
 ): Promise<object> {
   const sdk = await getSdk();
   const { PublicKey, ContractCallBuilder } = sdk;
@@ -203,6 +283,11 @@ export async function buildDeployJSON(
     .entryPoint(entryPoint)
     .runtimeArgs(args);
 
+  // For payable entry points, patch the runtime to VmCasperV2 with transferred_value
+  if (transferredValue && transferredValue > 0n) {
+    patchRuntimeForPayable(builder, transferredValue);
+  }
+
   // Legacy mode: build Deploy (for CSPR.click frontend signing)
   // Default: build TransactionV1 (for backend-submitted calls)
   const tx = legacy ? builder.buildFor1_5() : builder.build();
@@ -212,11 +297,27 @@ export async function buildDeployJSON(
 
 // ── On-chain contract calls (casper-js-sdk) ────────────────────────────────────
 
+/**
+ * Verify a contract package exists on-chain via CSPR.cloud.
+ * Returns the entity hash if found, or null if not found.
+ */
+async function verifyContractPackage(packageHash: string): Promise<string | null> {
+  try {
+    const data = await csproCloudGet(`/contracts/${packageHash}`) as any;
+    const contractHash = data?.data?.contractHash ?? data?.contractHash;
+    if (contractHash) return contractHash;
+    // If we get a 404 or empty response, the package doesn't exist
+    if (data?.error || data?.status === 404) return null;
+  } catch {}
+  return null;
+}
+
 export async function callContractEntry(
   entryPoint: string,
   namedArgs:  Record<string, ArgValue>,
   paymentMotes?: bigint,
   contractOverride?: string,
+  transferredValue?: bigint,
 ): Promise<string> {
   const sdk = await getSdk();
   const { RpcClient, Transaction } = sdk;
@@ -226,22 +327,65 @@ export async function callContractEntry(
   const rpc = new RpcClient(new AxiosHandler(config.casperNodeRpc));
 
   const contractHash = (contractOverride ?? config.contracts.taskCoordinator).replace("hash-", "");
-  const deployJSON = await buildDeployJSON(entryPoint, namedArgs, contractHash, key.publicKey.toHex(), paymentMotes);
+
+  // ── Pre-flight: verify contract package exists ──
+  const entityHash = await verifyContractPackage(contractHash);
+  if (!entityHash) {
+    console.error(`[Coordinator] ✗ Pre-flight check FAILED: no contract found at package-hash ${contractHash.slice(0, 16)}…`);
+    console.error(`[Coordinator] Fix: redeploy contracts and update AGENT_REGISTRY_HASH / AGENT_REPUTATION_HASH / TASK_COORDINATOR_HASH in env.`);
+    console.error(`[Coordinator] Check: https://testnet.cspr.live/package/${contractHash}`);
+    // Don't throw yet — let the call attempt proceed so we get the exact RPC error
+  } else if (entityHash !== contractHash) {
+    console.log(`[Coordinator] Package ${contractHash.slice(0, 16)}… resolves to entity ${entityHash.slice(0, 16)}…`);
+  }
+
+  const payment = paymentMotes ?? config.taskBudgetMotes;
+  const deployJSON = await buildDeployJSON(
+    entryPoint, namedArgs, contractHash,
+    key.publicKey.toHex(), payment, false, transferredValue,
+  );
+
+  // Log full transaction JSON for diagnostics (truncated)
+  const txJson = deployJSON as any;
+  const payload = txJson?.payload;
+  const target = payload?.fields?.target ?? payload?.target ?? "unknown";
+  const runtime = target?.Stored?.runtime ?? target?.runtime ?? "unknown";
+  console.log(`[Coordinator] → ${entryPoint} | pkg: ${contractHash.slice(0, 16)}… | payment: ${payment} motes | runtime: ${typeof runtime === 'string' ? runtime : JSON.stringify(runtime).slice(0, 60)}`);
+  if (transferredValue && transferredValue > 0n) {
+    console.log(`[Coordinator]   transferred_value: ${transferredValue} motes (${Number(transferredValue) / 1e9} CSPR)`);
+  }
 
   const transaction = Transaction.fromJSON(deployJSON);
   transaction.sign(key);
 
-  const result = await withRetry(
-    () => rpc.putTransaction(transaction) as Promise<{ transactionHash: { toHex(): string } }>,
-    `putTransaction(${entryPoint})`,
-    3,
-    3000,
-  );
+  let hash: string;
+  try {
+    const result = await withRetry(
+      () => rpc.putTransaction(transaction) as Promise<{ transactionHash: { toHex(): string } }>,
+      `putTransaction(${entryPoint})`,
+      3,
+      3000,
+    );
+    hash = result.transactionHash.toHex();
+  } catch (err) {
+    const msg = (err as Error).message ?? String(err);
+    console.error(`[Coordinator] ✗ ${entryPoint} submit failed: ${msg.slice(0, 300)}`);
+    try {
+      const txBytes = transaction.toBytes();
+      console.error(`[Coordinator]   tx bytes: ${txBytes.length} | first 64 hex: ${Buffer.from(txBytes).toString('hex').slice(0, 64)}`);
+    } catch {}
+    // If entity not found, suggest using byHash fallback
+    if (msg.includes("NoSuchEntity") || msg.includes("no such entity")) {
+      console.error(`[Coordinator]   → Entity not found. Possible causes:`);
+      console.error(`     1. Contract hash is wrong (check env vs explorer)`);
+      console.error(`     2. Contract not deployed yet (check https://testnet.cspr.live/package/${contractHash})`);
+      console.error(`     3. Using ByPackageHash but should use ByHash (entity hash vs package hash)`);
+    }
+    throw err;
+  }
 
-  const hash = result.transactionHash.toHex();
-
-  console.log(`[Coordinator] ${entryPoint} → ${hash}`);
-  console.log(`[Coordinator] https://testnet.cspr.live/transaction/${hash}`);
+  console.log(`[Coordinator] ✓ ${entryPoint} → ${hash}`);
+  console.log(`[Coordinator]   https://testnet.cspr.live/transaction/${hash}`);
 
   await waitForTransaction(rpc, hash);
   return hash;
@@ -312,20 +456,27 @@ async function waitForTransaction(
   for (let i = 0; i < MAX_ATTEMPTS; i++) {
     await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
     try {
-      const info = await rpc.getTransactionByTransactionHash(hash) as {
-        executionInfo?: { blockHeight?: number; executionResult?: { errorMessage?: string } };
-      };
+      const info = await rpc.getTransactionByTransactionHash(hash) as any;
       const exec = info.executionInfo;
       if (exec?.blockHeight && exec.blockHeight > 0 && exec.executionResult) {
         if (exec.executionResult.errorMessage) {
+          console.error(`[Coordinator] ✗ Transaction ${hash.slice(0, 16)}… failed on-chain at block ${exec.blockHeight}: ${exec.executionResult.errorMessage}`);
           throw new Error(`Casper transaction failed on-chain: ${exec.executionResult.errorMessage}`);
         }
+        console.log(`[Coordinator] ✓ Transaction ${hash.slice(0, 16)}… confirmed at block ${exec.blockHeight}`);
         return;
+      }
+      // Log progress every 10 polls
+      if (i > 0 && i % 10 === 0) {
+        console.log(`[Coordinator] Still waiting for ${hash.slice(0, 16)}… (attempt ${i + 1}/${MAX_ATTEMPTS})`);
       }
     } catch (e) {
       const msg = (e as Error).message ?? "";
       if (msg.startsWith("Casper transaction failed")) throw e;
       // Transient RPC errors — continue polling
+      if (i % 15 === 0 && i > 0) {
+        console.warn(`[Coordinator] RPC polling ${hash.slice(0, 16)}… attempt ${i + 1}: ${msg.slice(0, 100)}`);
+      }
     }
   }
   throw new Error(`Transaction ${hash} not confirmed after ${MAX_ATTEMPTS * POLL_INTERVAL_MS / 1000}s (${MAX_ATTEMPTS} attempts)`);
@@ -388,7 +539,7 @@ async function hireAndPay(
   taskId:    bigint,
   result:    TaskResult,
 ): Promise<void> {
-  const sdk = await getSdk();
+  await getSdk(); // ensure SDK loaded for side effects
 
   // Load coordinator key for EIP-712 signing (from x402.ts shared helper)
   const coordinator = await loadCoordinatorKey();
@@ -427,7 +578,7 @@ async function hireAndPay(
     valid_before: BigInt(validBefore),
     nonce:       { type: "ByteArray", value: nonceBytes },
     public_key:  { type: "PublicKey", value: coordinator.publicKey },
-    signature:   { type: "ByteArray", value: sigBytes },
+    signature:   { type: "Bytes", value: sigBytes },
   });
   result.agentsHired.push(agent.accountHash);
   result.casperExplorerLinks.push(`https://testnet.cspr.live/transaction/${hireHash}`);
@@ -483,9 +634,9 @@ async function completeTaskOnChain(
           updateAgentReputation(agent.accountHash, Number(score));
         } else {
           // If we can't query the score, apply the formula locally
-          const currentScore = agent.reputationScore;
           const newTasksCompleted = agent.tasksCompleted + 1;
-          const weightedTotal = newTasksCompleted + 0 * 2;
+          const failedCount = agent.tasksFailed ?? 0;
+          const weightedTotal = newTasksCompleted + failedCount * 2;
           const rawScore = Math.min(9900, Math.max(100, Math.floor((newTasksCompleted / Math.max(1, weightedTotal)) * 10000)));
           updateAgentReputation(agent.accountHash, rawScore);
         }
@@ -536,11 +687,11 @@ export async function runCoordinator(
   // ── Create task on Casper (with retry) ──────────────────────────────────
   let onChain = false;
   try {
-    console.log(`[Coordinator] Creating task on Casper Testnet…`);
+    console.log(`[Coordinator] Creating task on Casper Testnet (budget: ${config.taskBudgetMotes} motes)…`);
     const createHash = await withRetry(
       () => callContractEntry("create_task", {
         description: taskDescription,
-      }, config.taskBudgetMotes),
+      }, config.taskBudgetMotes, undefined, config.taskBudgetMotes),
       "create_task",
       2,
       5000,

@@ -39,17 +39,18 @@ app.get("/agents", async (_req: Request, res: Response, next: NextFunction) => {
     const enriched = await Promise.all(agents.map(async (agent) => {
       try {
         const rep = await getReputation(agent.accountHash);
+        if (!rep) {
+          // Agent has no on-chain reputation data yet
+          return { ...agent, reputationScore: null, tasksFailed: null, lastUpdated: null };
+        }
         return {
           ...agent,
-          tasksFailed:  rep.tasksFailed,
-          lastUpdated:  rep.lastUpdated,
+          reputationScore: rep.score,
+          tasksFailed:     rep.tasksFailed,
+          lastUpdated:     rep.lastUpdated,
         };
       } catch {
-        return {
-          ...agent,
-          tasksFailed:  0,
-          lastUpdated:  new Date(0).toISOString(),
-        };
+        return { ...agent, reputationScore: null, tasksFailed: null, lastUpdated: null };
       }
     }));
 
@@ -157,6 +158,7 @@ app.post("/task", limiter, async (req: Request, res: Response, next: NextFunctio
       // x402 deploy hashes — these are the real Casper payment proofs
       txHashes:            result.txHashes,
       casperExplorerLinks: result.casperExplorerLinks,
+      onChain:             result.onChain,
       research:            result.research,
       riskAnalysis:        result.riskAnalysis,
       coding:              result.coding,
@@ -705,6 +707,21 @@ app.post("/x402/submit", limiter, async (req: Request, res: Response, next: Next
 
     console.log(`[x402] ✓ CSPR.click-signed payment settled. Deploy: ${settleData.transaction}`);
     console.log(`[x402] Explorer: https://testnet.cspr.live/deploy/${settleData.transaction}`);
+
+    // Persist settlement record
+    try {
+      const { addSettlement } = await import("./settlements");
+      addSettlement({
+        hash:       settleData.transaction,
+        from:       settleData.payer,
+        to:         authorization.to,
+        amount:     authorization.value,
+        capability: "x402-direct",
+        taskId:     "user-initiated",
+      });
+    } catch (e) {
+      console.warn(`[x402] Failed to persist CSPR.click settlement: ${e}`);
+    }
 
     res.json({
       success: true,

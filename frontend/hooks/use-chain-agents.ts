@@ -36,13 +36,15 @@ export function useChainAgents() {
         const result: Agent[] = (data.agents ?? []).map((a: any) => ({
           name: `${a.capability.charAt(0).toUpperCase() + a.capability.slice(1)} Agent`,
           type: TYPE_MAP[a.capability] ?? a.capability,
-          description: `Autonomous ${a.capability} agent on GuildNet. ${a.tasksCompleted > 0 ? `${a.tasksCompleted} tasks completed.` : "Ready for hire."} Reputation: ${a.reputationScore}/10000.`,
+          description: a.demo
+            ? `Demo ${a.capability} agent on GuildNet. Coordinator-seeded for testing.`
+            : `Autonomous ${a.capability} agent on GuildNet. ${a.tasksCompleted > 0 ? `${a.tasksCompleted} tasks completed.` : "Ready for hire."}${a.reputationScore != null ? ` Reputation: ${a.reputationScore}/10000.` : ""}`,
           price: Number(a.pricePerTask) / 1e9,
-          rating: Math.min(5.0, (a.reputationScore ?? 5000) / 2000),
+          rating: a.reputationScore != null ? Math.min(5.0, a.reputationScore / 2000) : null,
           tasks:       a.tasksCompleted ?? 0,
-          tasksFailed: (a as any).tasksFailed ?? 0,
-          demo:        (a as any).demo ?? false,
-          reputationScore: a.reputationScore ?? 5000,
+          tasksFailed: a.tasksFailed ?? 0,
+          demo:        a.demo ?? false,
+          reputationScore: a.reputationScore ?? null,
           status: a.active ? "online" as const : "offline" as const,
           skills: SKILL_MAP[a.capability] ?? [a.capability],
           accountHash: a.accountHash ?? "",

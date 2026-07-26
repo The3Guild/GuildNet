@@ -158,6 +158,7 @@ export function incrementAgentTasks(accountHash: string): void {
 /**
  * Seed agents using the coordinator's own account hash.
  * Called on startup when no agents exist (e.g. fresh Render deploy).
+ * Attempts on-chain registration via AgentRegistry for each capability.
  */
 export async function seedCoordinatorAgents(): Promise<void> {
   loadLocal();
@@ -182,6 +183,8 @@ export async function seedCoordinatorAgents(): Promise<void> {
 
     const priceMotes = "500000000";
     const caps = ["research", "risk", "coding", "design", "audit", "report"];
+
+    // Seed locally first (always succeeds)
     for (const cap of caps) {
       agents.set(acctHash, {
         accountHash:      acctHash,
@@ -199,6 +202,43 @@ export async function seedCoordinatorAgents(): Promise<void> {
     }
     saveLocal();
     console.log(`[AgentStore] Seeded ${caps.length} coordinator agents (demo=true) with hash ${acctHash.slice(0, 14)}…`);
+
+    // Attempt on-chain registration for each capability (best-effort)
+    try {
+      const { callContractEntry } = await import("./coordinator");
+      const { config } = await import("./config");
+      let onChainCount = 0;
+      for (const cap of caps) {
+        try {
+          await callContractEntry(
+            "register",
+            {
+              endpoint:       `coordinator://${cap}`,
+              capability:     cap,
+              price_per_task: { type: "U512", value: priceMotes },
+            },
+            undefined,
+            config.contracts.agentRegistry,
+          );
+          onChainCount++;
+          console.log(`[AgentStore] ✓ Registered ${cap} agent on-chain`);
+        } catch (err) {
+          console.warn(`[AgentStore] On-chain registration for ${cap} failed (non-fatal): ${(err as Error).message?.slice(0, 120)}`);
+        }
+      }
+      if (onChainCount > 0) {
+        // Update source to on-chain for successfully registered agents
+        const agent = agents.get(acctHash);
+        if (agent) {
+          agent.source = "on-chain";
+          agent.demo = false;
+        }
+        saveLocal();
+        console.log(`[AgentStore] ${onChainCount}/${caps.length} agents registered on-chain`);
+      }
+    } catch (err) {
+      console.warn(`[AgentStore] On-chain registration batch failed (non-fatal): ${err}`);
+    }
   } catch (err) {
     console.warn(`[AgentStore] Could not seed coordinator agents: ${err}`);
   }

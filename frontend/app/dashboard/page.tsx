@@ -10,11 +10,24 @@ import { BACKEND_URL } from "@/lib/constants";
 import type { TaskRecord } from "@/hooks/use-tasks";
 import Link from "next/link";
 
+interface Settlement {
+  hash:       string;
+  from:       string;
+  to:         string;
+  amount:     string;
+  capability: string;
+  taskId:     string;
+  timestamp:  string;
+}
+
 export default function DashboardPage() {
   const { history, addTask } = useTaskHistory();
   const { agents, loading: agentsLoading } = useChainAgents();
   const [taskCount, setTaskCount] = useState("—");
   const [agentCount, setAgentCount] = useState("—");
+  const [totalSpentCSPR, setTotalSpentCSPR] = useState(0);
+  const [settlementCount, setSettlementCount] = useState(0);
+  const [chainReadOk, setChainReadOk] = useState(true);
 
   useEffect(() => {
     fetch(`${BACKEND_URL}/stats`)
@@ -22,19 +35,31 @@ export default function DashboardPage() {
       .then(data => {
         if (data.taskCount !== undefined) setTaskCount(String(data.taskCount));
         if (data.agentCount !== undefined) setAgentCount(String(data.agentCount));
+        if (data.chainReadOk === false) setChainReadOk(false);
+      })
+      .catch(() => setChainReadOk(false));
+  }, []);
+
+  useEffect(() => {
+    fetch(`${BACKEND_URL}/x402/history`)
+      .then(r => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
+      .then((data: { settlements?: Settlement[] }) => {
+        const settlements = data.settlements ?? [];
+        const total = settlements.reduce((s, x) => s + (parseFloat(x.amount || "0") / 1e9), 0);
+        setTotalSpentCSPR(total);
+        setSettlementCount(settlements.length);
       })
       .catch(() => {});
   }, []);
 
-  const totalSpent = history.reduce((s, t) => s + t.agentsHired.length * 0.5, 0);
   const avgRep = agents.length > 0
     ? Math.round(agents.reduce((s, a) => s + (a.reputationScore ?? 5000), 0) / agents.length)
     : 5000;
   const eliteCount = agents.filter(a => (a.reputationScore ?? 5000) >= 8000).length;
 
   const STATS = [
-    { label: "Agents",      value: agentCount, sub: "registered",       icon: Users,      color: "text-cyan-400",   bg: "from-cyan-500/15 to-cyan-500/5"    },
-    { label: "Tasks",       value: taskCount,  sub: "on-chain",         icon: Zap,        color: "text-violet-400", bg: "from-violet-500/15 to-violet-500/5" },
+    { label: "Agents",      value: agentCount, sub: chainReadOk ? "registered" : "est. local", icon: Users,      color: "text-cyan-400",   bg: "from-cyan-500/15 to-cyan-500/5"    },
+    { label: "Tasks",       value: taskCount,  sub: chainReadOk ? "on-chain" : "est. local",   icon: Zap,        color: "text-violet-400", bg: "from-violet-500/15 to-violet-500/5" },
     { label: "Avg. Rep.",   value: String(avgRep), sub: "score / 10000", icon: Shield,   color: "text-amber-400",  bg: "from-amber-500/15 to-amber-500/5"   },
     { label: "Sessions",    value: String(history.length), sub: "local", icon: Activity,   color: "text-blue-400",   bg: "from-blue-500/15 to-blue-500/5"     },
   ];
@@ -94,10 +119,10 @@ export default function DashboardPage() {
             <div>
               <p className="text-xs text-slate-500 mb-1">Total Earned</p>
               <div className="flex items-baseline gap-1.5">
-                <span className="text-xl font-bold text-white tabular-nums">{totalSpent.toFixed(1)}</span>
+                <span className="text-xl font-bold text-white tabular-nums">{totalSpentCSPR.toFixed(1)}</span>
                 <span className="text-[11px] text-slate-600">CSPR</span>
               </div>
-              <p className="text-[10px] text-slate-600 mt-1">From {history.length} sessions</p>
+              <p className="text-[10px] text-slate-600 mt-1">From {settlementCount} on-chain settlements</p>
             </div>
           </div>
         </div>

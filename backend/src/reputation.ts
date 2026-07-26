@@ -86,47 +86,44 @@ async function queryReputationVar(varName: string): Promise<string | undefined> 
 /**
  * Get reputation data for an agent from the AgentReputation contract.
  * Returns tasksCompleted, tasksFailed, score, and lastUpdated.
+ * Returns null if no on-chain reputation data exists for this agent.
  */
-export async function getReputation(agentHash: string): Promise<ReputationData> {
-  const defaults: ReputationData = {
-    tasksCompleted: 0,
-    tasksFailed:    0,
-    score:          5000,
-    lastUpdated:    new Date(0).toISOString(),
-  };
-
+export async function getReputation(agentHash: string): Promise<ReputationData | null> {
   try {
-    // Try to query individual fields from the reputation contract
     const [completedStr, failedStr, scoreStr] = await Promise.all([
       queryReputationVar(`reputation_completed_${agentHash}`),
       queryReputationVar(`reputation_failed_${agentHash}`),
       queryReputationVar(`reputation_score_${agentHash}`),
     ]);
 
-    if (completedStr !== undefined) {
-      defaults.tasksCompleted = Number(BigInt(completedStr));
+    // If none of the three queries returned data, this agent has no on-chain reputation
+    const hasAnyData = completedStr !== undefined || failedStr !== undefined || scoreStr !== undefined;
+    if (!hasAnyData) {
+      return null;
     }
-    if (failedStr !== undefined) {
-      defaults.tasksFailed = Number(BigInt(failedStr));
-    }
-    if (scoreStr !== undefined) {
-      defaults.score = Number(BigInt(scoreStr));
-    }
+
+    const data: ReputationData = {
+      tasksCompleted: completedStr !== undefined ? Number(BigInt(completedStr)) : 0,
+      tasksFailed:    failedStr !== undefined    ? Number(BigInt(failedStr))    : 0,
+      score:          scoreStr !== undefined      ? Number(BigInt(scoreStr))      : 0,
+      lastUpdated:    new Date(0).toISOString(),
+    };
 
     // Try to get last event timestamp from CSPR.cloud events
     try {
       const events = await getReputationEvents(agentHash);
       if (events.length > 0) {
-        defaults.lastUpdated = events[events.length - 1].timestamp;
+        data.lastUpdated = events[events.length - 1].timestamp;
       }
     } catch {
       // Non-critical — use epoch default
     }
+
+    return data;
   } catch (err) {
     console.warn(`[Reputation] Failed to fetch reputation for ${agentHash.slice(0, 14)}…: ${err}`);
+    return null;
   }
-
-  return defaults;
 }
 
 /**
