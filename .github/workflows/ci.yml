@@ -49,8 +49,17 @@ jobs:
         with:
           toolchain: nightly-2025-02-01
           targets: wasm32-unknown-unknown
+      - name: Cache cargo-odra
+        id: cache-cargo-odra
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/cargo-odra
+          key: cargo-odra-0.1.7
       - name: Install cargo-odra
-        run: cargo install cargo-odra || true
+        if: steps.cache-cargo-odra.outputs.cache-hit != 'true'
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup run stable cargo install cargo-odra@0.1.7 --locked
       - name: Run contract tests
         working-directory: smart-contract
         run: cargo odra test
