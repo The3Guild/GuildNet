@@ -1,6 +1,6 @@
 "use client";
 
-import { Star, Zap } from "lucide-react";
+import { Star, Zap, Shield } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export interface Agent {
@@ -10,8 +10,11 @@ export interface Agent {
   price: number;
   rating: number;
   tasks: number;
+  reputationScore?: number;
   status: "online" | "busy" | "offline";
   skills: string[];
+  accountHash?: string;
+  source?: "on-chain" | "local";
 }
 
 const GRADIENTS: Record<string, string> = {
@@ -20,15 +23,18 @@ const GRADIENTS: Record<string, string> = {
   Coding:   "from-violet-500 to-purple-400",
   Design:   "from-pink-500 to-rose-400",
   Report:   "from-emerald-500 to-teal-400",
+  Audit:    "from-indigo-500 to-blue-400",
 };
 const EMOJIS: Record<string, string> = {
-  Research: "🔍", Risk: "⚠️", Coding: "💻", Design: "🎨", Report: "📄",
+  Research: "🔍", Risk: "⚠️", Coding: "💻", Design: "🎨", Report: "📄", Audit: "✅",
 };
 
-export function AgentCard({ name, type, description, price, rating, tasks, status, skills }: Agent) {
+export function AgentCard({ name, type, description, price, rating, tasks, reputationScore, status, skills, source }: Agent) {
   const gradient = GRADIENTS[type] ?? "from-cyan-500 to-violet-400";
   const emoji    = EMOJIS[type] ?? "🤖";
   const isOnline = status === "online";
+  const repScore = reputationScore ?? 5000;
+  const isOnChain = source === "on-chain";
 
   return (
     <div className="glass-card p-4 flex flex-col group glow-hover transition-all duration-200 hover:-translate-y-0.5">
@@ -42,12 +48,15 @@ export function AgentCard({ name, type, description, price, rating, tasks, statu
             <div className="flex items-center gap-1.5 mt-0.5">
               <span className={cn("w-1.5 h-1.5 rounded-full", isOnline ? "bg-green-400 animate-pulse" : "bg-slate-500")} />
               <span className="text-[11px] text-slate-500 capitalize">{status}</span>
+              {isOnChain && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-500/10 border border-cyan-500/20 text-cyan-400">on-chain</span>
+              )}
             </div>
           </div>
         </div>
         <div className="flex items-center gap-1 px-2 py-0.5 bg-amber-500/8 border border-amber-500/15 rounded-lg">
           <Star className="w-3 h-3 text-amber-400 fill-amber-400" />
-          <span className="text-[11px] font-medium text-amber-300">{rating}</span>
+          <span className="text-[11px] font-medium text-amber-300">{rating.toFixed(1)}</span>
         </div>
       </div>
 
@@ -64,9 +73,15 @@ export function AgentCard({ name, type, description, price, rating, tasks, statu
           <span className="text-sm font-bold text-white">{price}</span>
           <span className="text-[11px] text-slate-500 ml-1">CSPR/task</span>
         </div>
-        <div className="flex items-center gap-1 text-[11px] text-slate-500">
-          <Zap className="w-3 h-3 text-cyan-400/40" />
-          <span>{tasks} tasks</span>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1 text-[11px] text-slate-500" title={`Reputation: ${repScore}/10000`}>
+            <Shield className="w-3 h-3 text-violet-400/60" />
+            <span>{repScore > 5000 ? "+" : ""}{Math.round(((repScore - 5000) / 5000) * 100)}%</span>
+          </div>
+          <div className="flex items-center gap-1 text-[11px] text-slate-500">
+            <Zap className="w-3 h-3 text-cyan-400/40" />
+            <span>{tasks}</span>
+          </div>
         </div>
       </div>
     </div>

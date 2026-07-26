@@ -1,13 +1,9 @@
 /**
- * agentRunner.ts — Agent-to-Agent runner (Casper)
+ * agentRunner.ts — Single-agent HTTP route handler (Casper)
  *
- * NOTE: The primary A2A orchestration loop now lives in coordinator.ts.
- * This file provides the /agent/:capability/run HTTP route handler used
- * by server.ts for direct single-agent invocations.
- *
- * Each capability runs Venice AI inference. On-chain hiring for standalone
- * A2A runs is handled via the coordinator's callContractEntry helper,
- * which this module re-exports for server.ts compatibility.
+ * The primary orchestration loop lives in coordinator.ts.
+ * This file provides the /agent/:capability/run HTTP route handler
+ * used by server.ts for direct single-agent invocations.
  */
 
 import { veniceChat } from "./agents/venice";

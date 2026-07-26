@@ -1,13 +1,15 @@
 import fs from "fs";
 import path from "path";
 
-interface AgentRecord {
+export interface AgentRecord {
   accountHash:      string;
   endpoint:         string;
   capability:       string;
   pricePerTask:     string;
   active:           boolean;
   reputationScore:  number;
+  tasksCompleted:   number;
+  source:           "on-chain" | "local";
 }
 
 const STORE_PATH = path.resolve(__dirname, "..", "data", "agents.json");
@@ -15,8 +17,10 @@ const ACCOUNT_HASH_RE = /^00[0-9a-f]{64}$/i;
 
 let agents: Map<string, AgentRecord> = new Map();
 let loaded = false;
+let lastChainSync = 0;
+const CHAIN_SYNC_INTERVAL_MS = 30_000;
 
-function load(): void {
+function loadLocal(): void {
   if (loaded) return;
   try {
     const dir = path.dirname(STORE_PATH);
@@ -30,28 +34,58 @@ function load(): void {
           removed++;
           continue;
         }
-        agents.set(k, rec);
+        agents.set(k, { ...rec, source: rec.source ?? "local" });
       }
       if (removed > 0) {
         console.warn(`[AgentStore] Removed ${removed} agents with invalid account hashes`);
-        save();
+        saveLocal();
       }
     }
   } catch (e) {
-    console.warn(`[AgentStore] Failed to load: ${e}`);
+    console.warn(`[AgentStore] Failed to load local cache: ${e}`);
   }
   loaded = true;
 }
 
-function save(): void {
+function saveLocal(): void {
   try {
     const obj: Record<string, AgentRecord> = {};
     for (const [k, v] of agents) obj[k] = v;
+    const dir = path.dirname(STORE_PATH);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(STORE_PATH, JSON.stringify(obj, null, 2));
   } catch (e) {
-    console.warn(`[AgentStore] Failed to save: ${e}`);
+    console.warn(`[AgentStore] Failed to save local cache: ${e}`);
   }
 }
+
+/**
+ * On-chain agent discovery is limited by the AgentRegistry contract design:
+ * agents are stored in an Odra Mapping<Address, AgentRecord> which is not
+ * exposed via CSPR.cloud's named-keys API. Full on-chain discovery would
+ * require a `get_all_agents()` entry point on the contract.
+ *
+ * For now, the local cache (seeded on startup + updated on user registration)
+ * is the primary agent registry.
+ */
+
+/**
+ * Sync on-chain state into the local agent store.
+ * On-chain agent discovery is limited (no get_all_agents entry point),
+ * so this is a best-effort merge. Local agents are always preserved.
+ */
+export async function syncWithChain(): Promise<void> {
+  const now = Date.now();
+  if (now - lastChainSync < CHAIN_SYNC_INTERVAL_MS) return;
+  lastChainSync = now;
+
+  // On-chain discovery is not yet supported (Odra Mapping not queryable).
+  // Local cache is the primary registry, populated by seedCoordinatorAgents()
+  // and updated by /agent/register/submit.
+  console.log(`[AgentStore] Chain sync: ${agents.size} agents in local cache`);
+}
+
+// ── Public API ──────────────────────────────────────────────────────────────
 
 export function addAgent(
   accountHash: string,
@@ -59,7 +93,7 @@ export function addAgent(
   capability: string,
   priceMotes: string,
 ): void {
-  load();
+  loadLocal();
   if (!ACCOUNT_HASH_RE.test(accountHash)) {
     console.warn(`[AgentStore] Rejecting invalid account hash: ${accountHash}`);
     return;
@@ -71,22 +105,44 @@ export function addAgent(
     pricePerTask: priceMotes,
     active: true,
     reputationScore: 5000,
+    tasksCompleted: 0,
+    source: "local",
   });
-  save();
+  saveLocal();
 }
 
 export function getAllAgents(): AgentRecord[] {
-  load();
+  loadLocal();
   return Array.from(agents.values())
     .filter(a => a.active)
     .sort((a, b) => b.reputationScore - a.reputationScore);
 }
 
 export function getAgentsByCapability(capability: string): AgentRecord[] {
-  load();
+  loadLocal();
   return Array.from(agents.values())
     .filter(a => a.active && a.capability === capability)
     .sort((a, b) => b.reputationScore - a.reputationScore);
+}
+
+export function updateAgentReputation(accountHash: string, score: number): void {
+  loadLocal();
+  const agent = agents.get(accountHash);
+  if (agent) {
+    agent.reputationScore = score;
+    agents.set(accountHash, agent);
+    saveLocal();
+  }
+}
+
+export function incrementAgentTasks(accountHash: string): void {
+  loadLocal();
+  const agent = agents.get(accountHash);
+  if (agent) {
+    agent.tasksCompleted += 1;
+    agents.set(accountHash, agent);
+    saveLocal();
+  }
 }
 
 /**
@@ -94,7 +150,7 @@ export function getAgentsByCapability(capability: string): AgentRecord[] {
  * Called on startup when no agents exist (e.g. fresh Render deploy).
  */
 export async function seedCoordinatorAgents(): Promise<void> {
-  load();
+  loadLocal();
   if (agents.size > 0) return;
 
   try {
@@ -124,3 +180,7 @@ export async function seedCoordinatorAgents(): Promise<void> {
     console.warn(`[AgentStore] Could not seed coordinator agents: ${err}`);
   }
 }
+
+// Auto-sync with chain on module load (non-blocking)
+loadLocal();
+syncWithChain().catch(() => {});

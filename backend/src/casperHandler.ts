@@ -29,29 +29,35 @@ export class AxiosHandler {
     }
 
     const resp = await this.client.post(this.endpoint, jsonStr);
-    const data = resp.data;
-
-    // Return the full response — RpcClient expects { result, error, ... }
-    return data;
+    return resp.data;
   }
 }
 
 /**
- * Check if an error is the "no such addressable entity" error
- * that the v2 testnet node returns for all contract calls.
+ * Retry a Casper RPC operation with exponential backoff.
+ * @param fn      The async operation to retry
+ * @param label   Human-readable label for log messages
+ * @param maxAttempts  Maximum number of attempts (default: 3)
+ * @param baseDelayMs  Base delay in ms (default: 2000, doubles each attempt)
  */
-export function isNoSuchEntityError(err: any): boolean {
-  const msg = err?.sourceErr?.data ?? err?.data ?? err?.message ?? "";
-  return (
-    typeof msg === "string" &&
-    msg.includes("no such addressable entity")
-  );
-}
-
-/**
- * Generate a simulated deploy hash for when on-chain calls fail.
- */
-export function simulatedHash(prefix = "sim"): string {
-  const crypto = require("crypto");
-  return prefix + crypto.randomBytes(28).toString("hex");
+export async function withRetry<T>(
+  fn: () => Promise<T>,
+  label: string,
+  maxAttempts = 3,
+  baseDelayMs = 2000,
+): Promise<T> {
+  let lastError: Error | undefined;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await fn();
+    } catch (err: any) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+      if (attempt < maxAttempts) {
+        const delay = baseDelayMs * Math.pow(2, attempt - 1);
+        console.warn(`[Retry] ${label} failed (attempt ${attempt}/${maxAttempts}): ${lastError.message}. Retrying in ${delay}ms…`);
+        await new Promise(r => setTimeout(r, delay));
+      }
+    }
+  }
+  throw new Error(`[Retry] ${label} failed after ${maxAttempts} attempts: ${lastError?.message}`);
 }
