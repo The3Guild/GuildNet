@@ -5,15 +5,15 @@ import type { TaskRecord } from "./use-tasks";
 
 const STORAGE_KEY = "guildnet:task-history";
 
-export function useTaskHistory() {
-  const [history, setHistory] = useState<TaskRecord[]>([]);
+function readHistory(): TaskRecord[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch { return []; }
+}
 
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) setHistory(JSON.parse(raw));
-    } catch {}
-  }, []);
+export function useTaskHistory() {
+  const [history, setHistory] = useState<TaskRecord[]>(readHistory);
 
   const addTask = useCallback((task: TaskRecord) => {
     setHistory(prev => {

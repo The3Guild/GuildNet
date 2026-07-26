@@ -15,9 +15,11 @@
 import crypto from "crypto";
 import { config } from "./config";
 import { csproCloudGet } from "./chain";
+import { buildEIP712Digest, signAuthorization, loadCoordinatorKey, type ExactCasperAuthorization } from "./x402";
 import { settleX402Payment } from "./x402";
 import { veniceChat } from "./agents/venice";
 import { withRetry } from "./casperHandler";
+import { addSettlement } from "./settlements";
 import {
   getAllAgents,
   getAgentsByCapability,
@@ -38,6 +40,10 @@ async function getSdk() {
   }
   return _sdk;
 }
+
+// ── Re-export loadCoordinatorKey from x402.ts (single source of truth) ──────
+
+export { loadCoordinatorKey } from "./x402";
 
 // ── Query a named key from the TaskCoordinator contract ─────────────────────
 
@@ -121,18 +127,54 @@ async function findAgents(capability: string): Promise<AgentRecord[]> {
 
 // ── Build runtime args helper ─────────────────────────────────────────────────
 
+type ArgValue =
+  | string
+  | bigint
+  | boolean
+  | { type: "U512"; value: string }
+  | { type: "Key"; value: string }
+  | { type: "ByteArray"; value: Uint8Array }
+  | { type: "PublicKey"; value: any }
+  | { type: "OptionString"; value: string | null };
+
 function buildArgs(
   sdk: any,
-  namedArgs: Record<string, string | bigint | boolean | { type: "U512"; value: string }>,
+  namedArgs: Record<string, ArgValue>,
 ): any {
-  const { Args, CLValue } = sdk;
+  const { Args, CLValue, Key, CLTypeString } = sdk;
   const args = Args.fromMap({});
   for (const [k, v] of Object.entries(namedArgs)) {
-    if (typeof v === "string")  args.insert(k, CLValue.newCLString(v));
-    else if (typeof v === "bigint")  args.insert(k, CLValue.newCLUint64(v));
-    else if (typeof v === "boolean") args.insert(k, CLValue.newCLValueBool(v));
-    else if (typeof v === "object" && "type" in v && v.type === "U512")
-      args.insert(k, CLValue.newCLUInt512(v.value));
+    if (typeof v === "string") {
+      args.insert(k, CLValue.newCLString(v));
+    } else if (typeof v === "bigint") {
+      args.insert(k, CLValue.newCLUint64(v));
+    } else if (typeof v === "boolean") {
+      args.insert(k, CLValue.newCLValueBool(v));
+    } else if (typeof v === "object" && "type" in v) {
+      switch (v.type) {
+        case "U512":
+          args.insert(k, CLValue.newCLUInt512(v.value));
+          break;
+        case "Key":
+          args.insert(k, CLValue.newCLKey(Key.fromAccountHash(v.value)));
+          break;
+        case "ByteArray":
+          args.insert(k, CLValue.newCLByteArray(v.value));
+          break;
+        case "PublicKey":
+          args.insert(k, CLValue.newCLPublicKey(v.value));
+          break;
+        case "OptionString":
+          args.insert(
+            k,
+            CLValue.newCLOption(
+              v.value !== null ? CLValue.newCLString(v.value) : null,
+              CLTypeString,
+            ),
+          );
+          break;
+      }
+    }
   }
   return args;
 }
@@ -141,10 +183,11 @@ function buildArgs(
 
 export async function buildDeployJSON(
   entryPoint: string,
-  namedArgs:  Record<string, string | bigint | boolean | { type: "U512"; value: string }>,
+  namedArgs:  Record<string, ArgValue>,
   contractHash: string,
   initiatorPublicKeyHex: string,
   paymentMotes?: bigint,
+  legacy?: boolean,
 ): Promise<object> {
   const sdk = await getSdk();
   const { PublicKey, ContractCallBuilder } = sdk;
@@ -152,14 +195,17 @@ export async function buildDeployJSON(
   const args = buildArgs(sdk, namedArgs);
   const cleanHash = contractHash.replace("hash-", "");
 
-  const tx = new ContractCallBuilder()
+  const builder = new ContractCallBuilder()
     .from(PublicKey.fromHex(initiatorPublicKeyHex))
     .chainName(config.casperChainName)
     .payment(Number(paymentMotes ?? config.taskBudgetMotes), 1)
-    .byHash(cleanHash)
+    .byPackageHash(cleanHash)
     .entryPoint(entryPoint)
-    .runtimeArgs(args)
-    .buildFor1_5();
+    .runtimeArgs(args);
+
+  // Legacy mode: build Deploy (for CSPR.click frontend signing)
+  // Default: build TransactionV1 (for backend-submitted calls)
+  const tx = legacy ? builder.buildFor1_5() : builder.build();
 
   return tx.toJSON();
 }
@@ -168,85 +214,124 @@ export async function buildDeployJSON(
 
 export async function callContractEntry(
   entryPoint: string,
-  namedArgs:  Record<string, string | bigint | boolean | { type: "U512"; value: string }>,
+  namedArgs:  Record<string, ArgValue>,
   paymentMotes?: bigint,
   contractOverride?: string,
 ): Promise<string> {
   const sdk = await getSdk();
-  const { KeyAlgorithm, PrivateKey, RpcClient, Deploy } = sdk;
+  const { RpcClient, Transaction } = sdk;
   const { AxiosHandler } = await import("./casperHandler");
 
-  const fsPromises = await import("fs/promises");
-  let pem: string;
-  try {
-    pem = await fsPromises.readFile(config.coordinatorKeyPath, "utf-8");
-  } catch {
-    throw new Error(
-      `Coordinator key not found at ${config.coordinatorKeyPath}. Generate one with: casper-client keygen ${config.coordinatorKeyPath.replace("/secret_key.pem", "")}`
-    );
-  }
-  const algo = config.coordinatorKeyAlgo === "secp256k1"
-    ? KeyAlgorithm.SECP256K1
-    : KeyAlgorithm.ED25519;
-  let key: InstanceType<typeof PrivateKey>;
-  try {
-    key = PrivateKey.fromPem(pem, algo);
-  } catch {
-    throw new Error(`Failed to parse coordinator key at ${config.coordinatorKeyPath} as ${config.coordinatorKeyAlgo}`);
-  }
+  const { key } = await loadCoordinatorKey();
   const rpc = new RpcClient(new AxiosHandler(config.casperNodeRpc));
 
   const contractHash = (contractOverride ?? config.contracts.taskCoordinator).replace("hash-", "");
   const deployJSON = await buildDeployJSON(entryPoint, namedArgs, contractHash, key.publicKey.toHex(), paymentMotes);
 
-  const deploy = Deploy.fromJSON(deployJSON);
-  deploy.sign(key);
+  const transaction = Transaction.fromJSON(deployJSON);
+  transaction.sign(key);
 
   const result = await withRetry(
-    () => rpc.putDeploy(deploy) as Promise<{ deployHash: { toHex(): string } }>,
-    `putDeploy(${entryPoint})`,
+    () => rpc.putTransaction(transaction) as Promise<{ transactionHash: { toHex(): string } }>,
+    `putTransaction(${entryPoint})`,
     3,
     3000,
   );
 
-  const hash = result.deployHash.toHex();
+  const hash = result.transactionHash.toHex();
 
   console.log(`[Coordinator] ${entryPoint} → ${hash}`);
-  console.log(`[Coordinator] https://testnet.cspr.live/deploy/${hash}`);
+  console.log(`[Coordinator] https://testnet.cspr.live/transaction/${hash}`);
 
-  await waitForDeploy(rpc, hash);
+  await waitForTransaction(rpc, hash);
   return hash;
 }
 
 /**
- * Submit an already-signed Deploy JSON via the Casper RPC.
+ * Submit an already-signed Deploy or Transaction JSON via the Casper RPC.
  * Used by POST /agent/register/submit (frontend signs via CSPR.click).
+ *
+ * Auto-detects whether the JSON is a legacy Deploy or TransactionV1
+ * and routes to the appropriate RPC method.
  */
 export async function submitSignedDeploy(signedDeployJSON: object): Promise<string> {
   const sdk = await import("casper-js-sdk").then(m => m.default ?? m);
-  const { Deploy, RpcClient } = sdk;
+  const { Deploy, Transaction, RpcClient } = sdk;
   const { AxiosHandler } = await import("./casperHandler");
   const rpc = new RpcClient(new AxiosHandler(config.casperNodeRpc));
 
-  const deploy = Deploy.fromJSON(signedDeployJSON);
+  const json = signedDeployJSON as any;
+  const isLegacyDeploy = !!(json.body && json.header && json.approvals);
+
+  if (isLegacyDeploy) {
+    // Legacy Deploy format (from CSPR.click frontend signing)
+    const deploy = Deploy.fromJSON(signedDeployJSON);
+
+    const result = await withRetry(
+      () => rpc.putDeploy(deploy) as Promise<{ deployHash: { toHex(): string } }>,
+      "putDeploy(signed)",
+      3,
+      3000,
+    );
+
+    const hash = result.deployHash.toHex();
+
+    console.log(`[submitSigned] User-signed deploy → ${hash}`);
+    console.log(`[submitSigned] https://testnet.cspr.live/deploy/${hash}`);
+
+    await waitForDeployLegacy(rpc, hash);
+    return hash;
+  }
+
+  // TransactionV1 format
+  const transaction = Transaction.fromJSON(signedDeployJSON);
 
   const result = await withRetry(
-    () => rpc.putDeploy(deploy) as Promise<{ deployHash: { toHex(): string } }>,
-    "putDeploy(signed)",
+    () => rpc.putTransaction(transaction) as Promise<{ transactionHash: { toHex(): string } }>,
+    "putTransaction(signed)",
     3,
     3000,
   );
 
-  const hash = result.deployHash.toHex();
+  const hash = result.transactionHash.toHex();
 
-  console.log(`[submitSigned] User-signed tx → ${hash}`);
-  console.log(`[submitSigned] https://testnet.cspr.live/deploy/${hash}`);
+  console.log(`[submitSigned] User-signed transaction → ${hash}`);
+  console.log(`[submitSigned] https://testnet.cspr.live/transaction/${hash}`);
 
-  await waitForDeploy(rpc, hash);
+  await waitForTransaction(rpc, hash);
   return hash;
 }
 
-async function waitForDeploy(
+async function waitForTransaction(
+  rpc:  { getTransactionByTransactionHash(h: string): Promise<unknown> },
+  hash: string,
+): Promise<void> {
+  const MAX_ATTEMPTS = 60;
+  const POLL_INTERVAL_MS = 4000;
+
+  for (let i = 0; i < MAX_ATTEMPTS; i++) {
+    await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
+    try {
+      const info = await rpc.getTransactionByTransactionHash(hash) as {
+        executionInfo?: { blockHeight?: number; executionResult?: { errorMessage?: string } };
+      };
+      const exec = info.executionInfo;
+      if (exec?.blockHeight && exec.blockHeight > 0 && exec.executionResult) {
+        if (exec.executionResult.errorMessage) {
+          throw new Error(`Casper transaction failed on-chain: ${exec.executionResult.errorMessage}`);
+        }
+        return;
+      }
+    } catch (e) {
+      const msg = (e as Error).message ?? "";
+      if (msg.startsWith("Casper transaction failed")) throw e;
+      // Transient RPC errors — continue polling
+    }
+  }
+  throw new Error(`Transaction ${hash} not confirmed after ${MAX_ATTEMPTS * POLL_INTERVAL_MS / 1000}s (${MAX_ATTEMPTS} attempts)`);
+}
+
+async function waitForDeployLegacy(
   rpc:  { getTransactionByDeployHash(h: string): Promise<unknown> },
   hash: string,
 ): Promise<void> {
@@ -303,24 +388,74 @@ async function hireAndPay(
   taskId:    bigint,
   result:    TaskResult,
 ): Promise<void> {
-  // 1. Record hire on Casper chain (with retry)
+  const sdk = await getSdk();
+
+  // Load coordinator key for EIP-712 signing (from x402.ts shared helper)
+  const coordinator = await loadCoordinatorKey();
+
+  // Build EIP-712 TransferAuthorization
+  const now = Math.floor(Date.now() / 1000);
+  const validAfter = String(now - 60);
+  const validBefore = String(now + config.x402.timeoutSeconds);
+  const nonce = crypto.randomBytes(32).toString("hex");
+
+  const authorization: ExactCasperAuthorization = {
+    from:       coordinator.accountHash,
+    to:         agent.accountHash,
+    value:      agent.pricePerTask,
+    validAfter,
+    validBefore,
+    nonce,
+  };
+
+  // Sign via centralized signAuthorization helper
+  const { signature: sigHex } = await signAuthorization(authorization);
+  const sigBytes  = new Uint8Array(Buffer.from(sigHex, "hex"));
+
+  // Convert nonce hex to 32-byte Uint8Array
+  const nonceBytes = new Uint8Array(32);
+  for (let i = 0; i < 32; i++) {
+    nonceBytes[i] = parseInt(nonce.slice(i * 2, i * 2 + 2), 16);
+  }
+
+  // 1. Record hire on Casper chain with full x402 auth args (with retry)
   const hireHash = await callContractEntry("hire_agent", {
-    task_id: taskId,
-    agent:   agent.accountHash,
+    task_id:     taskId,
+    agent:       { type: "Key", value: agent.accountHash },
+    value:       { type: "U512", value: agent.pricePerTask },
+    valid_after: BigInt(validAfter),
+    valid_before: BigInt(validBefore),
+    nonce:       { type: "ByteArray", value: nonceBytes },
+    public_key:  { type: "PublicKey", value: coordinator.publicKey },
+    signature:   { type: "ByteArray", value: sigBytes },
   });
   result.agentsHired.push(agent.accountHash);
-  result.casperExplorerLinks.push(`https://testnet.cspr.live/deploy/${hireHash}`);
+  result.casperExplorerLinks.push(`https://testnet.cspr.live/transaction/${hireHash}`);
 
   // 2. Real x402 payment via CSPR.cloud facilitator
-  const x402Hash = await settleX402Payment(
+  const settleResult = await settleX402Payment(
     agent.accountHash,
     agent.pricePerTask,
     agent.endpoint || `https://guildnet.io/agents/${agent.capability}`
   );
-  result.txHashes.push(x402Hash);
-  result.casperExplorerLinks.push(`https://testnet.cspr.live/deploy/${x402Hash}`);
+  result.txHashes.push(settleResult.hash);
+  result.casperExplorerLinks.push(`https://testnet.cspr.live/deploy/${settleResult.hash}`);
 
-  // 3. Update local agent store
+  // 3. Persist settlement record
+  try {
+    addSettlement({
+      hash:       settleResult.hash,
+      from:       settleResult.from,
+      to:         settleResult.to,
+      amount:     settleResult.amount,
+      capability: agent.capability,
+      taskId:     String(taskId),
+    });
+  } catch (e) {
+    console.warn(`[Coordinator] Failed to persist settlement: ${e}`);
+  }
+
+  // 4. Update local agent store
   incrementAgentTasks(agent.accountHash);
 }
 
@@ -334,7 +469,7 @@ async function completeTaskOnChain(
   try {
     await callContractEntry("complete_task", {
       task_id:     taskId,
-      result_hash: resultHash,
+      result_hash: { type: "OptionString", value: resultHash },
     });
     console.log(`[Coordinator] Task ${taskId} completed on-chain. Result hash: ${resultHash}`);
 
@@ -410,7 +545,7 @@ export async function runCoordinator(
       2,
       5000,
     );
-    result.casperExplorerLinks.push(`https://testnet.cspr.live/deploy/${createHash}`);
+    result.casperExplorerLinks.push(`https://testnet.cspr.live/transaction/${createHash}`);
     onChain = true;
     result.onChain = true;
     console.log(`[Coordinator] Task ${TASK_ID} created on-chain → ${createHash}`);

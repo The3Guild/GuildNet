@@ -30,7 +30,6 @@ export function useWallet(): WalletState {
   }, []);
 
   useEffect(() => {
-    setConnecting(false);
     if (connectTimeoutRef.current) {
       clearTimeout(connectTimeoutRef.current);
       connectTimeoutRef.current = undefined;
@@ -70,7 +69,7 @@ export function useWallet(): WalletState {
   return {
     connected: !!publicKey,
     address: publicKey ?? "",
-    connecting,
+    connecting: connecting && !publicKey,
     sdkReady: ready,
     error: sdkError,
     copied,
