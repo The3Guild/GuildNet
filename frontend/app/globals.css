@@ -18,6 +18,7 @@
 
 *, *::before, *::after { box-sizing: border-box; }
 html { scroll-behavior: smooth; }
+html, body { overflow-x: hidden; }
 
 body {
   background: var(--bg-primary);
@@ -185,4 +186,58 @@ body {
   font-size: 0.8125rem;
   color: #64748b;
   margin-top: 4px;
+}
+
+/* ── Layout utilities ──────────────────────────────────────────────────── */
+.page-container {
+  max-width: 72rem;
+  margin-left: auto;
+  margin-right: auto;
+  width: 100%;
+  padding-left: 1rem;
+  padding-right: 1rem;
+}
+@media (min-width: 768px) {
+  .page-container { padding-left: 1.5rem; padding-right: 1.5rem; }
+}
+@media (min-width: 1024px) {
+  .page-container { padding-left: 2rem; padding-right: 2rem; }
+}
+
+/* ── Reputation score bar ──────────────────────────────────────────────── */
+.rep-bar-track {
+  height: 6px;
+  background: rgba(255,255,255,0.06);
+  border-radius: 99px;
+  overflow: hidden;
+}
+.rep-bar-fill {
+  height: 100%;
+  border-radius: 99px;
+  transition: width 0.7s cubic-bezier(0.16,1,0.3,1);
+}
+.rep-bar-fill.rep-excellent { background: linear-gradient(90deg, #22c55e, #4ade80); }
+.rep-bar-fill.rep-good      { background: linear-gradient(90deg, #84cc16, #a3e635); }
+.rep-bar-fill.rep-neutral   { background: linear-gradient(90deg, #eab308, #facc15); }
+.rep-bar-fill.rep-poor      { background: linear-gradient(90deg, #f97316, #fb923c); }
+.rep-bar-fill.rep-bad       { background: linear-gradient(90deg, #ef4444, #f87171); }
+
+/* ── Stat card accent strip ────────────────────────────────────────────── */
+.stat-card {
+  position: relative;
+  overflow: hidden;
+}
+.stat-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--accent-gradient);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+.stat-card:hover::before {
+  opacity: 1;
 }

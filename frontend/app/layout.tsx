@@ -19,7 +19,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <div id="csprclick-ui-wrapper">
           <div id="csprclick-ui" />
         </div>
-        <div id="root">
+        <div id="root" className="overflow-x-hidden">
           <div className="bg-mesh" />
           <Providers>
             <AppShell>{children}</AppShell>
