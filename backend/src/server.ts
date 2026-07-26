@@ -6,7 +6,6 @@ import { config } from "./config";
 import { runCoordinator, findAllAgents, queryContractVar, buildDeployJSON, submitSignedDeploy } from "./coordinator";
 import { runAgent, type Capability } from "./agentRunner";
 import { buildProject } from "./builder";
-import { simulatedHash } from "./casperHandler";
 
 const app = express();
 app.use(cors({
@@ -216,14 +215,12 @@ app.post("/agent/register/submit", limiter, async (req: Request, res: Response, 
     if (!signedDeploy) { res.status(400).json({ error: "signedDeploy is required" }); return; }
 
     let deployHash: string;
-    let simulated = false;
     try {
       deployHash = await submitSignedDeploy(signedDeploy);
-      simulated = deployHash.startsWith("sim");
     } catch (err) {
-      console.warn(`[Server] Deploy submission failed, storing locally: ${err}`);
-      deployHash = simulatedHash();
-      simulated = true;
+      console.error(`[Server] Deploy submission failed: ${err}`);
+      res.status(502).json({ error: `On-chain submission failed: ${(err as Error).message}. The transaction was not submitted to the network.` });
+      return;
     }
 
     // Store agent in local registry so it shows up in GET /agents

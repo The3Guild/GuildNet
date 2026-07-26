@@ -6,7 +6,7 @@ import type { Agent } from "@/components/agents/agent-card";
 
 const TYPE_MAP: Record<string, string> = {
   research: "Research", risk: "Risk", coding: "Coding",
-  design: "Design", report: "Report", audit: "Risk",
+  design: "Design", report: "Report", audit: "Audit",
 };
 
 const SKILL_MAP: Record<string, string[]> = {
@@ -24,28 +24,41 @@ export function useChainAgents() {
   const [filter,  setFilter]  = useState("All");
 
   useEffect(() => {
-    (async () => {
+    let cancelled = false;
+
+    async function fetchAgents() {
       try {
         const res = await fetch(`${BACKEND_URL}/agents`);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
+        if (cancelled) return;
+
         const result: Agent[] = (data.agents ?? []).map((a: any) => ({
           name: `${a.capability.charAt(0).toUpperCase() + a.capability.slice(1)} Agent`,
-          type: TYPE_MAP[a.capability] ?? "Research",
-          description: `Autonomous ${a.capability} agent on GuildNet. ${(a.tasks ?? 0) > 0 ? `${a.tasks} tasks completed.` : "Ready for hire."}`,
+          type: TYPE_MAP[a.capability] ?? a.capability,
+          description: `Autonomous ${a.capability} agent on GuildNet. ${a.tasksCompleted > 0 ? `${a.tasksCompleted} tasks completed.` : "Ready for hire."} Reputation: ${a.reputationScore}/10000.`,
           price: Number(a.pricePerTask) / 1e9,
-          rating: Math.min(5.0, 4.5 + (a.tasks ?? 0) * 0.01),
-          tasks: a.tasks ?? 0,
+          rating: Math.min(5.0, 3.5 + (a.reputationScore / 10000) * 1.5),
+          tasks: a.tasksCompleted ?? 0,
+          reputationScore: a.reputationScore ?? 5000,
           status: a.active ? "online" as const : "offline" as const,
-          skills: SKILL_MAP[a.capability] ?? [],
+          skills: SKILL_MAP[a.capability] ?? [a.capability],
+          accountHash: a.accountHash ?? "",
+          source: a.source ?? "local",
         }));
         setAgents(result);
       } catch (e) {
         console.error("Failed to load agents from backend", e);
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
-    })();
+    }
+
+    fetchAgents();
+
+    // Poll for agent updates every 30 seconds
+    const interval = setInterval(fetchAgents, 30_000);
+    return () => { cancelled = true; clearInterval(interval); };
   }, []);
 
   const filtered = filter === "All" ? agents : agents.filter(a => a.type === filter);

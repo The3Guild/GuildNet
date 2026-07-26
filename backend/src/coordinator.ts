@@ -1,15 +1,15 @@
 /**
  * coordinator.ts — GuildNet orchestration loop (Casper)
  *
- * Replaces the viem/Base version. All on-chain interactions target the
- * deployed Casper Testnet contracts. Agent payments use the real Casper
- * x402 Facilitator via CSPR.cloud — not a custom permission mimic.
+ * All on-chain interactions target the deployed Casper Testnet contracts.
+ * Agent payments use the real Casper x402 Facilitator via CSPR.cloud.
  *
- * Payment flow per hire:
- *   1. hire_agent   — call TaskCoordinator.hire_agent on Casper (records on-chain)
- *   2. x402 settle  — POST /verify + /settle to CSPR.cloud facilitator
- *                     → CEP-18 token transfer on Casper Testnet
- *                     → returns real Casper deploy hash
+ * Flow per task:
+ *   1. create_task    — escrow CSPR budget on-chain
+ *   2. discover agents — query AgentRegistry (on-chain + local cache)
+ *   3. hire_agent     — call TaskCoordinator on Casper
+ *   4. x402 settle    — POST /verify + /settle to CSPR.cloud facilitator
+ *   5. complete_task  — store result hash, refund unspent, trigger reputation
  */
 
 import crypto from "crypto";
@@ -17,7 +17,15 @@ import { config } from "./config";
 import { csproCloudGet } from "./chain";
 import { settleX402Payment } from "./x402";
 import { veniceChat } from "./agents/venice";
-import { AxiosHandler, isNoSuchEntityError, simulatedHash } from "./casperHandler";
+import { withRetry } from "./casperHandler";
+import {
+  getAllAgents,
+  getAgentsByCapability,
+  syncWithChain,
+  updateAgentReputation,
+  incrementAgentTasks,
+  type AgentRecord,
+} from "./agentStore";
 
 // ── Lazy SDK import ───────────────────────────────────────────────────────────
 
@@ -40,6 +48,7 @@ export async function queryContractVar(varName: string): Promise<bigint | undefi
   try {
     const sdk = await getSdk();
     const { RpcClient } = sdk;
+    const { AxiosHandler } = await import("./casperHandler");
     const rpc = new RpcClient(new AxiosHandler(config.casperNodeRpc));
     const result = await rpc.queryLatestGlobalState(
       `hash-${contractHash}`,
@@ -84,42 +93,30 @@ export interface TaskResult {
   design?:             string;
   audit?:              string;
   report:              string;
-  agentsHired:         string[];   // Casper account hashes
-  txHashes:          string[];   // deploy hashes from x402 settlements
+  agentsHired:         string[];
+  txHashes:            string[];
   casperExplorerLinks: string[];
+  onChain:             boolean;
 }
 
-// ── Agent record shape from AgentRegistry ────────────────────────────────────
-
-export interface AgentRecord {
-  accountHash:      string;   // "00<64 hex>" — used as x402 payTo
-  endpoint:         string;
-  capability:       string;
-  pricePerTask:     string;   // motes, decimal string
-  active:           boolean;
-  reputationScore:  number;
-}
-
-// ── Agent discovery via local agent store ────────────────────────────────────
+// ── Agent discovery (on-chain primary, local cache fallback) ─────────────────
 
 export async function findAllAgents(): Promise<AgentRecord[]> {
   try {
-    const { getAllAgents } = await import("./agentStore");
-    return getAllAgents();
+    await syncWithChain();
   } catch (err) {
-    console.warn(`[Coordinator] Agent discovery failed: ${err}`);
-    return [];
+    console.warn(`[Coordinator] Chain sync failed: ${err}`);
   }
+  return getAllAgents();
 }
 
 async function findAgents(capability: string): Promise<AgentRecord[]> {
   try {
-    const { getAgentsByCapability } = await import("./agentStore");
-    return getAgentsByCapability(capability);
+    await syncWithChain();
   } catch (err) {
-    console.warn(`[Coordinator] Agent discovery failed for "${capability}": ${err}`);
-    return [];
+    console.warn(`[Coordinator] Chain sync failed for "${capability}": ${err}`);
   }
+  return getAgentsByCapability(capability);
 }
 
 // ── Build runtime args helper ─────────────────────────────────────────────────
@@ -167,7 +164,7 @@ export async function buildDeployJSON(
   return tx.toJSON();
 }
 
-// ── On-chain contract calls (casper-js-sdk v5) ────────────────────────────────
+// ── On-chain contract calls (casper-js-sdk) ────────────────────────────────────
 
 export async function callContractEntry(
   entryPoint: string,
@@ -176,7 +173,8 @@ export async function callContractEntry(
   contractOverride?: string,
 ): Promise<string> {
   const sdk = await getSdk();
-  const { KeyAlgorithm, PrivateKey, RpcClient } = sdk;
+  const { KeyAlgorithm, PrivateKey, RpcClient, Deploy } = sdk;
+  const { AxiosHandler } = await import("./casperHandler");
 
   const fsPromises = await import("fs/promises");
   let pem: string;
@@ -196,26 +194,21 @@ export async function callContractEntry(
   } catch {
     throw new Error(`Failed to parse coordinator key at ${config.coordinatorKeyPath} as ${config.coordinatorKeyAlgo}`);
   }
-  const rpc  = new RpcClient(new AxiosHandler(config.casperNodeRpc));
+  const rpc = new RpcClient(new AxiosHandler(config.casperNodeRpc));
 
   const contractHash = (contractOverride ?? config.contracts.taskCoordinator).replace("hash-", "");
   const deployJSON = await buildDeployJSON(entryPoint, namedArgs, contractHash, key.publicKey.toHex(), paymentMotes);
 
-  const { Deploy } = sdk;
   const deploy = Deploy.fromJSON(deployJSON);
   deploy.sign(key);
 
-  let result: { deployHash: { toHex(): string } };
-  try {
-    result = await rpc.putDeploy(deploy) as { deployHash: { toHex(): string } };
-  } catch (err: any) {
-    if (isNoSuchEntityError(err)) {
-      const simHash = simulatedHash();
-      console.warn(`[Coordinator] Contract call ${entryPoint} skipped — testnet node rejects contract calls (simulated hash: ${simHash})`);
-      return simHash;
-    }
-    throw new Error(`RPC putDeploy failed for ${entryPoint}: ${(err as Error).message}`);
-  }
+  const result = await withRetry(
+    () => rpc.putDeploy(deploy) as Promise<{ deployHash: { toHex(): string } }>,
+    `putDeploy(${entryPoint})`,
+    3,
+    3000,
+  );
+
   const hash = result.deployHash.toHex();
 
   console.log(`[Coordinator] ${entryPoint} → ${hash}`);
@@ -232,21 +225,18 @@ export async function callContractEntry(
 export async function submitSignedDeploy(signedDeployJSON: object): Promise<string> {
   const sdk = await import("casper-js-sdk").then(m => m.default ?? m);
   const { Deploy, RpcClient } = sdk;
+  const { AxiosHandler } = await import("./casperHandler");
   const rpc = new RpcClient(new AxiosHandler(config.casperNodeRpc));
 
   const deploy = Deploy.fromJSON(signedDeployJSON);
 
-  let result: { deployHash: { toHex(): string } };
-  try {
-    result = await rpc.putDeploy(deploy) as { deployHash: { toHex(): string } };
-  } catch (err: any) {
-    if (isNoSuchEntityError(err)) {
-      const simHash = simulatedHash();
-      console.warn(`[submitSigned] Contract call skipped — testnet node rejects contract calls. Simulated hash: ${simHash}`);
-      return simHash;
-    }
-    throw new Error(`RPC putDeploy failed: ${(err as Error).message}`);
-  }
+  const result = await withRetry(
+    () => rpc.putDeploy(deploy) as Promise<{ deployHash: { toHex(): string } }>,
+    "putDeploy(signed)",
+    3,
+    3000,
+  );
+
   const hash = result.deployHash.toHex();
 
   console.log(`[submitSigned] User-signed tx → ${hash}`);
@@ -258,13 +248,13 @@ export async function submitSignedDeploy(signedDeployJSON: object): Promise<stri
 
 async function waitForDeploy(
   rpc:  { getTransactionByDeployHash(h: string): Promise<unknown> },
-  hash: string
+  hash: string,
 ): Promise<void> {
-  // Simulated hashes skip waiting
-  if (hash.startsWith("sim")) return;
-  
-  for (let i = 0; i < 60; i++) {
-    await new Promise(r => setTimeout(r, 4000));
+  const MAX_ATTEMPTS = 60;
+  const POLL_INTERVAL_MS = 4000;
+
+  for (let i = 0; i < MAX_ATTEMPTS; i++) {
+    await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
     try {
       const info = await rpc.getTransactionByDeployHash(hash) as {
         executionInfo?: { blockHeight?: number; executionResult?: { errorMessage?: string } };
@@ -272,16 +262,17 @@ async function waitForDeploy(
       const exec = info.executionInfo;
       if (exec?.blockHeight && exec.blockHeight > 0 && exec.executionResult) {
         if (exec.executionResult.errorMessage) {
-          throw new Error(`Casper deploy failed: ${exec.executionResult.errorMessage}`);
+          throw new Error(`Casper deploy failed on-chain: ${exec.executionResult.errorMessage}`);
         }
         return;
       }
     } catch (e) {
       const msg = (e as Error).message ?? "";
       if (msg.startsWith("Casper deploy failed")) throw e;
+      // Transient RPC errors — continue polling
     }
   }
-  throw new Error(`Deploy ${hash} not confirmed after 240s`);
+  throw new Error(`Deploy ${hash} not confirmed after ${MAX_ATTEMPTS * POLL_INTERVAL_MS / 1000}s (${MAX_ATTEMPTS} attempts)`);
 }
 
 // ── Venice AI inference ───────────────────────────────────────────────────────
@@ -289,7 +280,7 @@ async function waitForDeploy(
 async function callAgent(
   capability:      string,
   taskDescription: string,
-  context = ""
+  context = "",
 ): Promise<string> {
   const SYSTEM_MAP: Record<string, string> = {
     research: "You are a market research specialist. Produce concise, factual research: key players, market size, growth trends.",
@@ -312,7 +303,7 @@ async function hireAndPay(
   taskId:    bigint,
   result:    TaskResult,
 ): Promise<void> {
-  // 1. Record hire on Casper chain
+  // 1. Record hire on Casper chain (with retry)
   const hireHash = await callContractEntry("hire_agent", {
     task_id: taskId,
     agent:   agent.accountHash,
@@ -321,8 +312,6 @@ async function hireAndPay(
   result.casperExplorerLinks.push(`https://testnet.cspr.live/deploy/${hireHash}`);
 
   // 2. Real x402 payment via CSPR.cloud facilitator
-  //    → POST /verify (off-chain signature check)
-  //    → POST /settle (CEP-18 token transfer on Casper Testnet)
   const x402Hash = await settleX402Payment(
     agent.accountHash,
     agent.pricePerTask,
@@ -330,6 +319,48 @@ async function hireAndPay(
   );
   result.txHashes.push(x402Hash);
   result.casperExplorerLinks.push(`https://testnet.cspr.live/deploy/${x402Hash}`);
+
+  // 3. Update local agent store
+  incrementAgentTasks(agent.accountHash);
+}
+
+// ── Complete task on-chain: store result hash, trigger reputation ────────────
+
+async function completeTaskOnChain(
+  taskId:       bigint,
+  resultHash:   string,
+  agentsHired:  AgentRecord[],
+): Promise<void> {
+  try {
+    await callContractEntry("complete_task", {
+      task_id:     taskId,
+      result_hash: resultHash,
+    });
+    console.log(`[Coordinator] Task ${taskId} completed on-chain. Result hash: ${resultHash}`);
+
+    // Reputation is updated by the TaskCoordinator contract calling AgentReputation.
+    // Also update our local store to reflect the on-chain reputation change.
+    for (const agent of agentsHired) {
+      try {
+        // Query updated score from chain
+        const score = await queryContractVar(`reputation_score_${agent.accountHash}`);
+        if (score !== undefined) {
+          updateAgentReputation(agent.accountHash, Number(score));
+        } else {
+          // If we can't query the score, apply the formula locally
+          const currentScore = agent.reputationScore;
+          const newTasksCompleted = agent.tasksCompleted + 1;
+          const weightedTotal = newTasksCompleted + 0 * 2;
+          const rawScore = Math.min(9900, Math.max(100, Math.floor((newTasksCompleted / Math.max(1, weightedTotal)) * 10000)));
+          updateAgentReputation(agent.accountHash, rawScore);
+        }
+      } catch {
+        // Reputation update is non-critical
+      }
+    }
+  } catch (err) {
+    console.warn(`[Coordinator] complete_task failed (non-fatal): ${err}`);
+  }
 }
 
 // ── Main orchestration loop ───────────────────────────────────────────────────
@@ -338,16 +369,24 @@ let _nextTaskId = 0n;
 
 export async function runCoordinator(
   taskDescription: string,
-  capabilities: string[] = ["research", "risk", "audit", "report"]
+  capabilities: string[] = ["research", "risk", "audit", "report"],
 ): Promise<TaskResult> {
 
   const result: TaskResult = {
     taskId:              "",
     report:              "",
     agentsHired:         [],
-    txHashes:          [],
+    txHashes:            [],
     casperExplorerLinks: [],
+    onChain:             false,
   };
+
+  // ── Sync agents from chain ──────────────────────────────────────────────
+  try {
+    await syncWithChain();
+  } catch {
+    // Non-fatal — local cache is available
+  }
 
   // ── Query real task ID from contract state (fallback to local counter) ─────
   let TASK_ID: bigint;
@@ -359,15 +398,24 @@ export async function runCoordinator(
     console.warn(`[Coordinator] Could not query task_count, using local ID ${TASK_ID}`);
   }
 
-  // ── Create task on Casper (non-fatal) ──────────────────────────────────────
+  // ── Create task on Casper (with retry) ──────────────────────────────────
+  let onChain = false;
   try {
     console.log(`[Coordinator] Creating task on Casper Testnet…`);
-    const createHash = await callContractEntry("create_task", {
-      description: taskDescription,
-    }, config.taskBudgetMotes);
+    const createHash = await withRetry(
+      () => callContractEntry("create_task", {
+        description: taskDescription,
+      }, config.taskBudgetMotes),
+      "create_task",
+      2,
+      5000,
+    );
     result.casperExplorerLinks.push(`https://testnet.cspr.live/deploy/${createHash}`);
+    onChain = true;
+    result.onChain = true;
+    console.log(`[Coordinator] Task ${TASK_ID} created on-chain → ${createHash}`);
   } catch (err) {
-    console.warn(`[Coordinator] create_task failed (continuing): ${err}`);
+    console.warn(`[Coordinator] create_task failed — proceeding without on-chain task: ${err}`);
   }
   result.taskId = String(TASK_ID);
 
@@ -377,7 +425,7 @@ export async function runCoordinator(
     const found = await findAgents(cap);
     if (found[0]) {
       agentMap[cap] = found[0];
-      console.log(`[Coordinator] Found ${cap} agent: ${found[0].accountHash.slice(0, 14)}… (rep=${found[0].reputationScore})`);
+      console.log(`[Coordinator] Found ${cap} agent: ${found[0].accountHash.slice(0, 14)}… (rep=${found[0].reputationScore}, source=${found[0].source})`);
     } else {
       console.warn(`[Coordinator] No ${cap} agent registered — will run AI without on-chain hire`);
     }
@@ -393,13 +441,11 @@ export async function runCoordinator(
 
     for (let i = 0; i < wave1.length; i++) {
       const cap = wave1[i];
-      // Store AI output regardless of agent registration
       if (cap === "research")     result.research = outputs[i];
       else if (cap === "coding")  result.coding   = outputs[i];
       else if (cap === "design")  result.design   = outputs[i];
       else result.research = (result.research ?? "") + `\n\n[${cap.toUpperCase()}]\n${outputs[i]}`;
 
-      // Hire + pay on-chain only if an agent is registered
       if (agentMap[cap]) {
         try {
           await hireAndPay(agentMap[cap]!, TASK_ID, result);
@@ -450,20 +496,18 @@ export async function runCoordinator(
     }
   }
 
-  // ── Complete task — store result hash on-chain (non-fatal) ─────────────────
-  try {
+  // ── Complete task on-chain — store result hash, trigger reputation ────────
+  if (onChain) {
     const resultHash = crypto.createHash("sha256").update(result.report).digest("hex");
-    const completeHash = await callContractEntry("complete_task", {
-      task_id:     TASK_ID,
-      result_hash: resultHash,
-    });
-    result.casperExplorerLinks.push(`https://testnet.cspr.live/deploy/${completeHash}`);
-  } catch (err) {
-    console.warn(`[Coordinator] complete_task failed (non-fatal): ${err}`);
+    const hiredAgentRecords = capabilities
+      .filter(c => agentMap[c])
+      .map(c => agentMap[c]!);
+    await completeTaskOnChain(TASK_ID, resultHash, hiredAgentRecords);
   }
 
   console.log("\n[Coordinator] ✅ Task complete!");
   console.log(`[Coordinator] x402 deploy hashes: ${result.txHashes.join(", ")}`);
+  console.log(`[Coordinator] On-chain: ${result.onChain}`);
   console.log("[Coordinator] Explorer links:");
   result.casperExplorerLinks.forEach(l => console.log("  ", l));
 
