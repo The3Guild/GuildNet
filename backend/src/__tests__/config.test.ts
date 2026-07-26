@@ -27,8 +27,7 @@ describe("config defaults", () => {
 
   it("throws when required env vars are missing", async () => {
     process.env = {};
-    await expect(async () => {
-      await import("../config");
-    }).rejects.toThrow();
+    const { config } = await import("../config");
+    expect(() => config.contracts.agentRegistry).toThrow("Missing env var: AGENT_REGISTRY_HASH");
   });
 });

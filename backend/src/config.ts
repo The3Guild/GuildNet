@@ -21,13 +21,14 @@ export const config = {
 
   // ── Deployed Casper contract hashes ─────────────────────────────────────────
   contracts: {
-    agentRegistry:   required("AGENT_REGISTRY_HASH"),
-    agentReputation: required("AGENT_REPUTATION_HASH"),
-    taskCoordinator: required("TASK_COORDINATOR_HASH"),
+    // Lazy: only throws when accessed without env var, not at import time
+    get agentRegistry()   { return required("AGENT_REGISTRY_HASH"); },
+    get agentReputation() { return required("AGENT_REPUTATION_HASH"); },
+    get taskCoordinator() { return required("TASK_COORDINATOR_HASH"); },
   },
 
   // ── CSPR.cloud ───────────────────────────────────────────────────────────────
-  csprCloudAuthToken:  required("CSPR_CLOUD_AUTH_TOKEN"),
+  get csprCloudAuthToken() { return required("CSPR_CLOUD_AUTH_TOKEN"); },
   csprCloudBaseUrl:    optional("CSPR_CLOUD_BASE_URL",   "https://api.cspr.cloud"),
   x402FacilitatorUrl:  optional("X402_FACILITATOR_URL",  "https://x402-facilitator.cspr.cloud"),
 
@@ -46,7 +47,7 @@ export const config = {
   taskBudgetMotes: BigInt(optional("TASK_BUDGET_MOTES", "2500000000")),
 
   // ── Venice AI ────────────────────────────────────────────────────────────────
-  veniceApiKey:  required("VENICE_API_KEY"),
+  get veniceApiKey() { return required("VENICE_API_KEY"); },
   veniceBaseUrl: optional("VENICE_BASE_URL", "https://api.venice.ai/api/v1"),
 
   // ── Server ───────────────────────────────────────────────────────────────────
