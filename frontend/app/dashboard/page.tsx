@@ -29,7 +29,7 @@ export default function DashboardPage() {
   const totalSpent = history.reduce((s, t) => s + t.agentsHired.length * 0.5, 0);
 
   const STATS = [
-    { label: "Agents",      value: agentCount, sub: "on-chain",          icon: Users,      color: "text-cyan-400",   bg: "from-cyan-500/15 to-cyan-500/5"    },
+    { label: "Agents",      value: agentCount, sub: "registered",      icon: Users,      color: "text-cyan-400",   bg: "from-cyan-500/15 to-cyan-500/5"    },
     { label: "Tasks",       value: taskCount,  sub: "on-chain",          icon: Zap,        color: "text-violet-400", bg: "from-violet-500/15 to-violet-500/5" },
     { label: "Sessions",    value: String(history.length), sub: "local", icon: Activity,   color: "text-blue-400",   bg: "from-blue-500/15 to-blue-500/5"     },
     { label: "Spend",       value: `${totalSpent.toFixed(2)}`, sub: "CSPR", icon: TrendingUp, color: "text-green-400", bg: "from-green-500/15 to-green-500/5"  },

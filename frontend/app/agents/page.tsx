@@ -29,7 +29,7 @@ export default function AgentsPage() {
       <div className="page-header flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h1>Agent Marketplace</h1>
-          <p>Live agents on Casper Testnet — auto-selected and paid per task</p>
+          <p>Agents on Casper Testnet — auto-selected and paid per task</p>
         </div>
         <Link href="/register" className="btn-primary flex items-center gap-2 px-4 py-2 text-xs self-start sm:self-auto flex-shrink-0">
           <Plus className="w-3.5 h-3.5" /> Register Agent

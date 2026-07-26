@@ -6,6 +6,8 @@ import { config } from "./config";
 import { runCoordinator, findAllAgents, queryContractVar, buildDeployJSON, submitSignedDeploy } from "./coordinator";
 import { runAgent, type Capability } from "./agentRunner";
 import { buildProject } from "./builder";
+import { getReputation, getReputationEvents } from "./reputation";
+import { getSettlements } from "./settlements";
 
 const app = express();
 app.use(cors({
@@ -27,11 +29,46 @@ app.get("/health", (_req: Request, res: Response) => {
 /**
  * GET /agents
  * Returns all registered agents from the AgentRegistry contract.
+ * Includes tasksFailed and lastUpdated from the reputation contract.
  */
 app.get("/agents", async (_req: Request, res: Response, next: NextFunction) => {
   try {
     const agents = await findAllAgents();
-    res.json({ agents });
+
+    // Enrich with on-chain reputation data (best-effort)
+    const enriched = await Promise.all(agents.map(async (agent) => {
+      try {
+        const rep = await getReputation(agent.accountHash);
+        return {
+          ...agent,
+          tasksFailed:  rep.tasksFailed,
+          lastUpdated:  rep.lastUpdated,
+        };
+      } catch {
+        return {
+          ...agent,
+          tasksFailed:  0,
+          lastUpdated:  new Date(0).toISOString(),
+        };
+      }
+    }));
+
+    res.json({ agents: enriched });
+  } catch (err) { next(err); }
+});
+
+/**
+ * GET /agents/:accountHash/reputation
+ * Returns reputation data from the AgentReputation contract for a specific agent.
+ */
+app.get("/agents/:accountHash/reputation", async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { accountHash } = req.params;
+    const [rep, events] = await Promise.all([
+      getReputation(accountHash),
+      getReputationEvents(accountHash),
+    ]);
+    res.json({ reputation: rep, events });
   } catch (err) { next(err); }
 });
 
@@ -83,11 +120,14 @@ app.get("/setup/check", async (_req: Request, res: Response) => {
 
 app.get("/stats", async (_req: Request, res: Response, next: NextFunction) => {
   try {
+    let chainReadOk = true;
     const [taskCount, agentCount] = await Promise.all([
-      queryContractVar("task_count").then(v => v !== undefined ? Number(v) : 0),
+      queryContractVar("task_count")
+        .then(v => v !== undefined ? Number(v) : (chainReadOk = false, 0))
+        .catch(() => { chainReadOk = false; return 0; }),
       findAllAgents().then(a => a.length),
     ]);
-    res.json({ taskCount, agentCount });
+    res.json({ taskCount, agentCount, chainReadOk });
   } catch (err) { next(err); }
 });
 
@@ -252,8 +292,8 @@ app.post("/agent/register/submit", limiter, async (req: Request, res: Response, 
 
 /**
  * POST /agent/:capability/run
- * A2A route: run a specific agent directly. The agent can autonomously hire
- * sub-agents on-chain using its own wallet before performing Venice AI inference.
+ * Run a single agent for inference via Venice AI.
+ * External agents can call this endpoint to run work.
  *
  * Body: { taskId: string, description: string, context?: string }
  */
@@ -276,8 +316,6 @@ app.post("/agent/:capability/run", limiter, async (req: Request, res: Response, 
       capability:     result.capability,
       agentAddress:   result.agentAddress,
       output:         result.output,
-      subAgentsHired: result.subAgentsHired,
-      txHashes:       result.txHashes,
     });
   } catch (err) { next(err); }
 });
@@ -675,6 +713,17 @@ app.post("/x402/submit", limiter, async (req: Request, res: Response, next: Next
       network: settleData.network,
       payer: settleData.payer,
     });
+  } catch (err) { next(err); }
+});
+
+/**
+ * GET /x402/history
+ * Returns all persisted x402 settlement records.
+ */
+app.get("/x402/history", async (_req: Request, res: Response, next: NextFunction) => {
+  try {
+    const settlements = getSettlements();
+    res.json({ settlements, count: settlements.length });
   } catch (err) { next(err); }
 });
 
