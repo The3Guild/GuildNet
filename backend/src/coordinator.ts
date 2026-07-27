@@ -120,7 +120,18 @@ async function findAgents(capability: string): Promise<AgentRecord[]> {
   } catch (err) {
     console.warn(`[Coordinator] Chain sync failed for "${capability}": ${err}`);
   }
-  return getAgentsByCapability(capability);
+  const all = getAgentsByCapability(capability);
+
+  // Prefer external (on-chain registered) agents over coordinator fallback agents.
+  // External agents are real actors who registered via CSPR.click.
+  // Coordinator agents (demo=true) are a fallback for when no external agents exist.
+  const external = all.filter(a => a.source === "on-chain");
+  if (external.length > 0) {
+    console.log(`[Coordinator] ${capability}: ${external.length} external agent(s) available`);
+    return external;
+  }
+
+  return all;
 }
 
 // ── Build runtime args helper ─────────────────────────────────────────────────

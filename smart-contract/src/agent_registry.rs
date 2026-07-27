@@ -103,7 +103,8 @@ impl AgentRegistry {
 
         self.env().emit_event(AgentRegistered {
             agent: caller,
-            capability,
+            endpoint: endpoint.clone(),
+            capability: capability.clone(),
             price_per_task,
         });
     }
@@ -168,6 +169,33 @@ impl AgentRegistry {
         self.agent_list.len()
     }
 
+    /// Returns all registered agents as a pipe-delimited string for backend consumption.
+    /// Format per agent: `address|endpoint|capability|price_per_task|active|reputation_score`
+    /// Agents are separated by newlines.
+    pub fn get_all_agents_data(&self) -> String {
+        let len = self.agent_list.len();
+        let mut result = String::new();
+        for i in 0..len {
+            if let Some(addr) = self.agent_list.get(i) {
+                if let Some(record) = self.agents.get(&addr) {
+                    if !result.is_empty() {
+                        result.push('\n');
+                    }
+                    result.push_str(&format!(
+                        "{:?}|{}|{}|{}|{}|{}",
+                        addr,
+                        record.endpoint,
+                        record.capability,
+                        record.price_per_task,
+                        record.active,
+                        record.reputation_score,
+                    ));
+                }
+            }
+        }
+        result
+    }
+
     /// Returns active agents matching `capability`, sorted by reputation DESC.
     /// Highest-trust agent is at index 0.
     pub fn find_by_capability(&self, capability: String) -> Vec<Address> {
@@ -215,6 +243,7 @@ pub enum Error {
 #[odra::event]
 pub struct AgentRegistered {
     pub agent:          Address,
+    pub endpoint:       String,
     pub capability:     String,
     pub price_per_task: U512,
 }
@@ -346,5 +375,38 @@ mod tests {
         let result = registry
             .try_register("url".to_string(), "".to_string(), one_cspr());
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_get_all_agents_data() {
+        let env = odra_test::env();
+        let mut registry = AgentRegistry::deploy(&env, NoArgs);
+
+        env.set_caller(env.get_account(1));
+        registry.register(
+            "https://agent1.ai".to_string(),
+            "research".to_string(),
+            one_cspr(),
+        );
+
+        env.set_caller(env.get_account(2));
+        registry.register(
+            "https://agent2.ai".to_string(),
+            "coding".to_string(),
+            U512::from(2_000_000_000u64),
+        );
+
+        let data = registry.get_all_agents_data();
+        let lines: Vec<&str> = data.split('\n').collect();
+        assert_eq!(lines.len(), 2);
+
+        // Each line should have 6 pipe-separated fields
+        for line in &lines {
+            let fields: Vec<&str> = line.split('|').collect();
+            assert_eq!(fields.len(), 6);
+            // field[3] = price, field[4] = active, field[5] = score
+            assert_eq!(fields[4], "true");
+            assert_eq!(fields[5], "5000");
+        }
     }
 }

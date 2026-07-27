@@ -1,14 +1,14 @@
 /**
- * reputation.ts — Trust Ledger
+ * reputation.ts — Trust Ledger & On-Chain Discovery
  *
- * Reads reputation data from the local agentStore (which mirrors on-chain
- * state). Also supports fetching ReputationRecorded events from CSPR.cloud
- * for audit trail / enrichment.
+ * Two primary functions:
+ *   1. Agent Discovery: Parse AgentRegistered / ReputationUpdated / AgentDeactivated
+ *      events from CSPR.cloud to discover real on-chain agents.
+ *   2. Reputation: Read from local agentStore (mirrors on-chain state).
  *
  * Odra Mapping storage is NOT readable via named keys — individual mapping
  * entries can only be accessed via dictionary reads or view entry points.
- * Since the backend is the one calling record_completion / record_failure,
- * the local store is the authoritative source for real-time reputation.
+ * Events are the reliable discovery mechanism; the local store mirrors writes.
  */
 
 import { config } from "./config";
@@ -166,4 +166,190 @@ function parseReputationRecorded(hex: string): ParsedReputationEvent | null {
     score,
     completed: tasksCompleted > 0 && tasksFailed === 0,
   };
+}
+
+// ── On-chain agent discovery via CSPR.cloud events API ───────────────────────
+
+export interface DiscoveredAgent {
+  accountHash:      string;
+  endpoint:         string;
+  capability:       string;
+  pricePerTask:     string;
+  active:           boolean;
+  reputationScore:  number;
+}
+
+/**
+ * Discover real on-chain agents by parsing AgentRegistry events from CSPR.cloud.
+ *
+ * Processes three event types:
+ *   1. AgentRegistered — agent address, endpoint, capability, price
+ *   2. ReputationUpdated — pushes reputation score
+ *   3. AgentDeactivated — marks agent inactive
+ *
+ * Events are processed in chronological order (reversed from CSPR.cloud's
+ * newest-first response) so the final state reflects the latest on-chain data.
+ */
+export async function discoverOnChainAgents(): Promise<DiscoveredAgent[]> {
+  try {
+    const data = await csproCloudGet(
+      `/contracts/${config.contracts.agentRegistry.replace("hash-", "")}/events?limit=200`
+    ) as { data?: Array<{ event_name: string; cl_value: string; timestamp: string }> };
+
+    const events = data.data ?? [];
+    // CSPR.cloud returns newest-first; reverse for chronological processing
+    events.reverse();
+
+    const agents = new Map<string, DiscoveredAgent>();
+
+    for (const evt of events) {
+      try {
+        if (evt.event_name === "AgentRegistered") {
+          const parsed = parseAgentRegistered(evt.cl_value);
+          if (parsed) {
+            agents.set(parsed.accountHash, {
+              accountHash:     parsed.accountHash,
+              endpoint:        parsed.endpoint || `https://guildnet.io/agents/${parsed.capability}`,
+              capability:      parsed.capability,
+              pricePerTask:    parsed.pricePerTask,
+              active:          true,
+              reputationScore: 5000,
+            });
+          }
+        } else if (evt.event_name === "ReputationUpdated") {
+          const parsed = parseReputationUpdated(evt.cl_value);
+          if (parsed && agents.has(parsed.agent)) {
+            agents.get(parsed.agent)!.reputationScore = parsed.score;
+          }
+        } else if (evt.event_name === "AgentDeactivated") {
+          const parsed = parseAgentDeactivated(evt.cl_value);
+          if (parsed && agents.has(parsed.agent)) {
+            agents.get(parsed.agent)!.active = false;
+          }
+        }
+      } catch {
+        // Skip unparseable events
+      }
+    }
+
+    if (agents.size > 0) {
+      console.log(`[Discovery] Found ${agents.size} on-chain agents from ${events.length} events`);
+    }
+    return Array.from(agents.values());
+  } catch (err) {
+    console.warn(`[Discovery] Failed to query AgentRegistry events: ${err}`);
+    return [];
+  }
+}
+
+// ── CL hex value parsers for AgentRegistry events ────────────────────────────
+
+interface ParsedAgentRegistered {
+  accountHash:  string;
+  endpoint:     string;
+  capability:   string;
+  pricePerTask: string;
+}
+
+/**
+ * Parse AgentRegistered event CL values.
+ * Layout: [Key agent] [String endpoint] [String capability] [U512 price_per_task]
+ */
+function parseAgentRegistered(hex: string): ParsedAgentRegistered | null {
+  const clean = hex.replace(/^0x/i, "");
+  let offset = 0;
+  const readByte = () => parseInt(clean.slice(offset, offset + 2), 16);
+  const readBytes = (n: number) => {
+    const bytes = clean.slice(offset, offset + n * 2);
+    offset += n * 2;
+    return bytes;
+  };
+
+  // Agent address — Key type (tag 0x01), 32 bytes
+  const addrTag = readByte();
+  if (addrTag !== 0x01) return null;
+  const agentHex = readBytes(32);
+  const accountHash = "00" + agentHex;
+
+  // Endpoint — String type (tag 0x09), 4-byte LE length + UTF-8
+  const endpointTag = readByte();
+  if (endpointTag !== 0x09) return null;
+  const endpointLen = parseInt(readBytes(4).split("").reverse().join(""), 16);
+  const endpoint = Buffer.from(readBytes(endpointLen), "hex").toString("utf-8");
+
+  // Capability — String type (tag 0x09), 4-byte LE length + UTF-8
+  const capTag = readByte();
+  if (capTag !== 0x09) return null;
+  const capLen = parseInt(readBytes(4).split("").reverse().join(""), 16);
+  const capability = Buffer.from(readBytes(capLen), "hex").toString("utf-8");
+
+  // Price per task — U512 type (tag 0x06), 1-byte count + N*8 bytes LE
+  const priceTag = readByte();
+  if (priceTag !== 0x06) return null;
+  const priceWordCount = readByte();
+  let price = 0n;
+  for (let i = 0; i < priceWordCount; i++) {
+    const wordHex = readBytes(8).split("").reverse().join("");
+    price |= BigInt("0x" + wordHex) << (BigInt(i) * 64n);
+  }
+
+  return { accountHash, endpoint, capability, pricePerTask: String(price) };
+}
+
+interface ParsedReputationUpdated {
+  agent: string;
+  score: number;
+}
+
+/**
+ * Parse ReputationUpdated event CL values.
+ * Layout: [Key agent] [U32 score]
+ */
+function parseReputationUpdated(hex: string): ParsedReputationUpdated | null {
+  const clean = hex.replace(/^0x/i, "");
+  let offset = 0;
+  const readByte = () => parseInt(clean.slice(offset, offset + 2), 16);
+  const readBytes = (n: number) => {
+    const bytes = clean.slice(offset, offset + n * 2);
+    offset += n * 2;
+    return bytes;
+  };
+
+  const addrTag = readByte();
+  if (addrTag !== 0x01) return null;
+  const agentHex = readBytes(32);
+  const agent = "00" + agentHex;
+
+  const scoreTag = readByte();
+  if (scoreTag !== 0x04) return null;
+  const scoreHex = readBytes(4);
+  const score = parseInt(scoreHex.split("").reverse().join(""), 16);
+
+  return { agent, score };
+}
+
+interface ParsedAgentDeactivated {
+  agent: string;
+}
+
+/**
+ * Parse AgentDeactivated event CL values.
+ * Layout: [Key agent]
+ */
+function parseAgentDeactivated(hex: string): ParsedAgentDeactivated | null {
+  const clean = hex.replace(/^0x/i, "");
+  let offset = 0;
+  const readByte = () => parseInt(clean.slice(offset, offset + 2), 16);
+  const readBytes = (n: number) => {
+    const bytes = clean.slice(offset, offset + n * 2);
+    offset += n * 2;
+    return bytes;
+  };
+
+  const addrTag = readByte();
+  if (addrTag !== 0x01) return null;
+  const agentHex = readBytes(32);
+  const agent = "00" + agentHex;
+
+  return { agent };
 }

@@ -68,29 +68,63 @@ function saveLocal(): void {
 }
 
 /**
- * On-chain agent discovery is limited by the AgentRegistry contract design:
- * agents are stored in an Odra Mapping<Address, AgentRecord> which is not
- * exposed via CSPR.cloud's named-keys API. Full on-chain discovery would
- * require a `get_all_agents()` entry point on the contract.
+ * On-chain agent discovery via CSPR.cloud events API.
+ * AgentRegistry events (AgentRegistered, ReputationUpdated, AgentDeactivated)
+ * are parsed to discover real on-chain agents. The local cache persists across
+ * requests and is rebuilt from events on fresh starts.
  *
- * For now, the local cache (seeded on startup + updated on user registration)
- * is the primary agent registry.
+ * Coordinator fallback agents (demo=true) are seeded when the store is empty,
+ * providing a working system even without on-chain agents.
  */
 
 /**
  * Sync on-chain state into the local agent store.
- * On-chain agent discovery is limited (no get_all_agents entry point),
- * so this is a best-effort merge. Local agents are always preserved.
+ * Discovers real agents registered on Casper Testnet by parsing
+ * AgentRegistry events via CSPR.cloud. External agents are merged
+ * into the local cache (preserving coordinator fallback agents).
  */
 export async function syncWithChain(): Promise<void> {
   const now = Date.now();
   if (now - lastChainSync < CHAIN_SYNC_INTERVAL_MS) return;
   lastChainSync = now;
 
-  // On-chain discovery is not yet supported (Odra Mapping not queryable).
-  // Local cache is the primary registry, populated by seedCoordinatorAgents()
-  // and updated by /agent/register/submit.
-  console.log(`[AgentStore] Chain sync: ${agents.size} agents in local cache`);
+  try {
+    const { discoverOnChainAgents } = await import("./reputation");
+    const discovered = await discoverOnChainAgents();
+
+    let newCount = 0;
+    for (const agent of discovered) {
+      const existing = agents.get(agent.accountHash);
+      if (!existing) {
+        // New on-chain agent not in local cache
+        agents.set(agent.accountHash, {
+          accountHash:      agent.accountHash,
+          endpoint:         agent.endpoint,
+          capability:       agent.capability,
+          pricePerTask:     agent.pricePerTask,
+          active:           agent.active,
+          reputationScore:  agent.reputationScore,
+          tasksCompleted:   0,
+          tasksFailed:      0,
+          lastUpdated:      new Date().toISOString(),
+          source:           "on-chain",
+        });
+        newCount++;
+      } else if (existing.source === "local" && !existing.demo) {
+        // Upgrade local (user-registered) agent with on-chain data
+        existing.reputationScore = agent.reputationScore;
+        existing.active = agent.active;
+        existing.source = "on-chain";
+      }
+    }
+
+    if (newCount > 0 || discovered.length > 0) {
+      saveLocal();
+    }
+    console.log(`[AgentStore] Chain sync: ${agents.size} agents total, ${discovered.length} on-chain discovered, ${newCount} new`);
+  } catch (err) {
+    console.warn(`[AgentStore] Chain sync failed (non-fatal): ${err}`);
+  }
 }
 
 // ── Public API ──────────────────────────────────────────────────────────────
