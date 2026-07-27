@@ -112,21 +112,21 @@ export function TaskCreator({ onTaskComplete }: Props) {
   }
 
   return (
-    <div className="glass-card p-6 space-y-5">
+    <div className="glass-card p-4 sm:p-6 space-y-4 sm:space-y-5">
       {/* Header */}
       <div className="flex items-center gap-3">
-        <div className="relative">
+        <div className="relative flex-shrink-0">
           <div className="absolute inset-0 rounded-xl bg-gradient-to-br from-cyan-500 to-violet-600 blur-lg opacity-30" />
           <div className="relative w-9 h-9 rounded-xl bg-gradient-to-br from-cyan-500 to-violet-600 flex items-center justify-center shadow-lg">
             <Sparkles className="w-4 h-4 text-white" />
           </div>
         </div>
-        <div className="flex-1">
+        <div className="flex-1 min-w-0">
           <h2 className="text-base font-bold text-white">Create Task</h2>
           <p className="text-xs text-slate-500 mt-0.5">Agents self-organize and execute autonomously</p>
         </div>
         <button onClick={() => setAutoMode(p => !p)}
-          className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${autoMode ? "border-cyan-500/30 bg-cyan-500/[0.08] text-cyan-400" : "border-white/[0.08] bg-white/[0.03] text-slate-400 hover:text-white"}`}>
+          className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all flex-shrink-0 ${autoMode ? "border-cyan-500/30 bg-cyan-500/[0.08] text-cyan-400" : "border-white/[0.08] bg-white/[0.03] text-slate-400 hover:text-white"}`}>
           {autoMode ? "⚡ Auto" : "✋ Manual"}
         </button>
       </div>
@@ -201,7 +201,7 @@ export function TaskCreator({ onTaskComplete }: Props) {
               const isActive = key === step;
               const isDone = i < stepIndex;
               return (
-                <div key={key} className={`pipeline-step flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium ${
+                <div key={key} className={`pipeline-step flex items-center gap-1.5 px-2 sm:px-3 py-1.5 rounded-lg border text-[11px] sm:text-xs font-medium ${
                   isActive ? "pipeline-step-active text-cyan-400 border-cyan-500/30" :
                   isDone ? "pipeline-step-done text-emerald-400 border-emerald-500/20" :
                   "border-white/[0.08] bg-white/[0.02] text-slate-600"
@@ -252,34 +252,34 @@ export function TaskCreator({ onTaskComplete }: Props) {
                   <div className="border-t border-white/[0.05]">
                     {(key === "design" || (key === "coding" && (val.includes("<!DOCTYPE") || val.includes("<html")))) ? (
                       <div>
-                        <div className="flex items-center justify-between px-4 py-2 bg-black/30 border-b border-white/5">
-                          <span className="text-xs text-slate-400">
+                        <div className="flex items-center justify-between px-3 sm:px-4 py-2 bg-black/30 border-b border-white/5">
+                          <span className="text-[11px] sm:text-xs text-slate-400">
                             {key === "coding" ? "Live app — fully interactive" : "Live design preview"}
                           </span>
-                          <div className="flex items-center gap-3">
+                          <div className="flex items-center gap-2 sm:gap-3">
                             <button onClick={() => { const b = new Blob([val], { type: "text/html" }); const a = document.createElement("a"); a.href = URL.createObjectURL(b); a.download = `${key}-output.html`; a.click(); }}
-                              className="text-xs text-slate-400 hover:text-white transition-colors">Download</button>
+                              className="text-[11px] text-slate-400 hover:text-white transition-colors">Download</button>
                             <button onClick={() => { const b = new Blob([val], { type: "text/html" }); window.open(URL.createObjectURL(b), "_blank"); }}
-                              className="text-xs text-cyan-400 hover:underline">Fullscreen</button>
+                              className="text-[11px] text-cyan-400 hover:underline">Fullscreen</button>
                           </div>
                         </div>
-                        <iframe srcDoc={val} className="w-full border-0" style={{ height: "560px" }}
+                        <iframe srcDoc={val} className="w-full border-0 h-[40vh] sm:h-[560px]"
                           sandbox="allow-scripts allow-same-origin allow-forms allow-popups" title={key} />
                       </div>
                     ) : (
-                      <div className={`px-4 py-4 text-sm leading-relaxed max-h-[500px] overflow-y-auto ${
+                      <div className={`px-3 sm:px-4 py-4 text-sm leading-relaxed max-h-[500px] overflow-y-auto ${
                         key === "coding" || (key === "report" && val.includes("// === FILE:"))
                           ? "font-mono text-emerald-300/80 bg-black/30 whitespace-pre text-xs"
                           : "text-slate-300 whitespace-pre-wrap"
                       }`}>{val}</div>
                     )}
-                    <div className="px-4 pb-3 pt-2 flex gap-2 border-t border-white/5">
+                    <div className="px-3 sm:px-4 pb-3 pt-2 flex flex-col sm:flex-row gap-2 border-t border-white/5">
                       <input value={feedback[key] ?? ""}
                         onChange={e => setFeedback(prev => ({ ...prev, [key]: e.target.value }))}
                         placeholder="Request improvements..."
                         className="flex-1 input-base px-3 py-2 text-xs" />
                       <button onClick={() => handleEnhance(key)} disabled={!feedback[key]?.trim() || enhancing === key}
-                        className="flex items-center gap-1.5 px-3 py-2 bg-cyan-500/[0.08] border border-cyan-500/25 text-cyan-400 rounded-lg text-xs font-medium hover:bg-cyan-500/[0.15] transition-colors disabled:opacity-30">
+                        className="flex items-center justify-center gap-1.5 px-3 py-2 bg-cyan-500/[0.08] border border-cyan-500/25 text-cyan-400 rounded-lg text-xs font-medium hover:bg-cyan-500/[0.15] transition-colors disabled:opacity-30">
                         {enhancing === key ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}Enhance
                       </button>
                     </div>

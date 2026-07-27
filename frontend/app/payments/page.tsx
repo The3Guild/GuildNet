@@ -62,7 +62,7 @@ export default function PaymentsPage() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         {/* Wallet sidebar */}
-        <div className="space-y-3">
+        <div className="order-2 lg:order-1 space-y-3">
           {!connected ? (
             <div className="glass-card p-5 text-center space-y-3">
               <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-cyan-500/10 to-violet-500/10 flex items-center justify-center mx-auto">
@@ -87,7 +87,7 @@ export default function PaymentsPage() {
         </div>
 
         {/* Settlement list */}
-        <div className="lg:col-span-2">
+        <div className="lg:col-span-2 order-1 lg:order-2">
           {loading ? (
             <div className="glass-card p-10 text-center h-full flex flex-col items-center justify-center">
               <Loader2 className="w-6 h-6 text-cyan-400 animate-spin mx-auto mb-2" />
@@ -105,7 +105,7 @@ export default function PaymentsPage() {
                 const isPayer = address && s.from.toLowerCase() === address.toLowerCase();
                 const amountCSPR = (parseFloat(s.amount || "0") / 1e9).toFixed(2);
                 return (
-                  <div key={s.hash} className="glass-card px-4 py-3 flex items-center gap-3 hover:bg-white/[0.03] transition-colors">
+                  <div key={s.hash} className="glass-card px-3 sm:px-4 py-3 flex items-center gap-2 sm:gap-3 hover:bg-white/[0.03] transition-colors">
                     <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${isPayer ? "bg-red-500/8" : "bg-green-500/8"}`}>
                       {isPayer
                         ? <ArrowUpRight className="w-4 h-4 text-red-400" />
@@ -122,11 +122,10 @@ export default function PaymentsPage() {
                         )}
                       </div>
                     </div>
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      <span className={`text-sm font-medium tabular-nums ${isPayer ? "text-red-400" : "text-green-400"}`}>
+                    <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
+                      <span className={`text-xs sm:text-sm font-medium tabular-nums ${isPayer ? "text-red-400" : "text-green-400"}`}>
                         {isPayer ? "−" : "+"}{amountCSPR}
                       </span>
-                      <span className="text-[11px] text-slate-600 hidden sm:inline">CSPR</span>
                       <a href={`${CASPER_EXPLORER}/deploy/${s.hash}`} target="_blank" rel="noreferrer"
                         className="text-slate-500 hover:text-cyan-400 transition-colors p-1">
                         <ExternalLink className="w-3 h-3" />

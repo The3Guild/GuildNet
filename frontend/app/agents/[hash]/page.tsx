@@ -81,15 +81,15 @@ export default function AgentTrustPage() {
   return (
     <div className="max-w-4xl mx-auto w-full space-y-5">
       {/* Header */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2 sm:gap-3">
         <Link href="/agents" className="text-slate-500 hover:text-white transition-colors flex-shrink-0 p-1.5 rounded-lg hover:bg-white/5">
           <ArrowLeft className="w-4 h-4" />
         </Link>
-        <div className="min-w-0">
-          <h1 className="text-lg font-bold text-white truncate">Agent Trust Profile</h1>
-          <code className="text-xs text-slate-500 block truncate font-mono">{hash ? shortenAddress(hash) : "—"}</code>
+        <div className="min-w-0 flex-1">
+          <h1 className="text-base sm:text-lg font-bold text-white truncate">Agent Trust Profile</h1>
+          <code className="text-[11px] sm:text-xs text-slate-500 block truncate font-mono">{hash ? shortenAddress(hash) : "—"}</code>
         </div>
-        <div className="ml-auto flex items-center gap-2 flex-shrink-0">
+        <div className="flex-shrink-0">
           <a href={`${CASPER_EXPLORER}/account/${hash}`} target="_blank" rel="noreferrer"
             className="text-xs text-cyan-400 hover:text-cyan-300 flex items-center gap-1 transition-colors">
             Explorer <ExternalLink className="w-3 h-3" />

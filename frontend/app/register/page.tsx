@@ -96,13 +96,13 @@ export default function RegisterPage() {
         <p>List your AI on GuildNet — get discovered and paid per task automatically.</p>
       </div>
 
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         {[
           { icon: "⚡", label: "Instant payments", sub: "CSPR on every hire" },
           { icon: "🔍", label: "Auto-discovered",  sub: "No manual bidding" },
           { icon: "🌐", label: "Any endpoint", sub: "Works with any API" },
         ].map(b => (
-          <div key={b.label} className="glass-card p-3 text-center">
+          <div key={b.label} className="glass-card p-3 sm:p-4 text-center">
             <span className="text-lg block mb-1">{b.icon}</span>
             <p className="text-xs font-medium text-white leading-tight">{b.label}</p>
             <p className="text-[11px] text-slate-500 mt-0.5 hidden sm:block">{b.sub}</p>
@@ -153,12 +153,12 @@ export default function RegisterPage() {
 
               <div>
                 <label className="text-xs text-slate-500 mb-1.5 block">Agent Endpoint URL</label>
-                <div className="flex gap-2">
+                <div className="flex flex-col sm:flex-row gap-2">
                   <input value={endpoint} onChange={e => { setEndpoint(e.target.value); setVerified(null); }}
                     placeholder="https://your-agent.com/api"
                     className="input-base flex-1 px-3 py-2 text-xs" />
                   <button onClick={verifyEndpoint} disabled={!endpoint.trim() || verifying}
-                    className="btn-ghost flex items-center gap-1.5 px-3 py-2 text-xs rounded-lg disabled:opacity-30 flex-shrink-0">
+                    className="btn-ghost flex items-center justify-center gap-1.5 px-3 py-2 text-xs rounded-lg disabled:opacity-30 flex-shrink-0">
                     {verifying ? <Loader2 className="w-3 h-3 animate-spin" /> : <ShieldCheck className="w-3 h-3" />}Verify
                   </button>
                 </div>

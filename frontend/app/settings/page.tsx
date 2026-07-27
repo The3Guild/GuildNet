@@ -21,7 +21,7 @@ export default function SettingsPage() {
         <p>Network info, contracts, and active agents</p>
       </div>
 
-      <div className="glass-card p-4 flex flex-col sm:flex-row sm:items-center gap-4">
+      <div className="glass-card p-4 flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
         <div className="flex items-center gap-3 flex-1 min-w-0">
           <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-green-500/15 to-emerald-500/10 border border-green-500/15 flex items-center justify-center flex-shrink-0">
             <Globe className="w-4 h-4 text-green-400" />
@@ -34,7 +34,7 @@ export default function SettingsPage() {
             </div>
             <a href={CASPER_EXPLORER} target="_blank" rel="noreferrer"
               className="text-xs text-slate-500 hover:text-cyan-400 transition-colors flex items-center gap-1 mt-0.5">
-              {CASPER_EXPLORER} <ExternalLink className="w-3 h-3" />
+              <span className="truncate">{CASPER_EXPLORER}</span> <ExternalLink className="w-3 h-3 flex-shrink-0" />
             </a>
           </div>
         </div>

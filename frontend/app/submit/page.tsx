@@ -113,17 +113,17 @@ ${form.team ? `## Team Members\n${form.team}` : ""}
 
       {/* Progress steps */}
       <div className="glass-card p-4">
-        <div className="flex items-center gap-2 text-xs text-slate-500">
+        <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
           <span className="flex items-center gap-1.5">
             <span className="w-6 h-6 rounded-full bg-cyan-500/20 border border-cyan-500/30 flex items-center justify-center text-cyan-400 font-semibold">1</span>
             Fill details
           </span>
-          <span className="text-slate-700">——</span>
+          <span className="text-slate-700 hidden sm:inline">——</span>
           <span className="flex items-center gap-1.5">
             <span className="w-6 h-6 rounded-full bg-white/[0.05] border border-white/[0.1] flex items-center justify-center text-slate-500 font-semibold">2</span>
             Review
           </span>
-          <span className="text-slate-700">——</span>
+          <span className="text-slate-700 hidden sm:inline">——</span>
           <span className="flex items-center gap-1.5">
             <span className="w-6 h-6 rounded-full bg-white/[0.05] border border-white/[0.1] flex items-center justify-center text-slate-500 font-semibold">3</span>
             Submit

@@ -72,14 +72,14 @@ export default function BuilderPage() {
         <p>One sentence → a fully working, interactive website or dApp.</p>
       </div>
 
-      <div className="glass-card p-5 space-y-4">
+      <div className="glass-card p-4 sm:p-5 space-y-4">
         <div className="relative">
           <textarea value={prompt} onChange={e => setPrompt(e.target.value)}
             onKeyDown={e => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) handleBuild(); }}
             placeholder="Describe what you want to build..."
             rows={3} className="input-base p-4 pr-12 resize-none text-sm" disabled={loading} />
           <button onClick={handleBuild} disabled={!prompt.trim() || loading}
-            className="btn-primary absolute bottom-3 right-3 p-2 rounded-lg">
+            className="btn-primary absolute bottom-3 right-3 p-2.5 rounded-lg">
             {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
           </button>
         </div>
@@ -159,7 +159,7 @@ export default function BuilderPage() {
                     className="text-[11px] text-cyan-400 hover:underline">Fullscreen</button>
                 </div>
               </div>
-              <iframe srcDoc={html} className="w-full border-0" style={{ height: "560px" }}
+              <iframe srcDoc={html} className="w-full border-0 h-[50vh] sm:h-[560px]"
                 sandbox="allow-scripts allow-same-origin allow-forms allow-popups" title="Live App" />
             </div>
           )}
@@ -170,7 +170,7 @@ export default function BuilderPage() {
                 <Monitor className="w-3.5 h-3.5 text-cyan-400" />
                 <span className="text-xs font-medium text-white">Live Preview</span>
               </div>
-              <iframe src={result.previewUrl} className="w-full border-0" style={{ height: "520px" }}
+              <iframe src={result.previewUrl} className="w-full border-0 h-[50vh] sm:h-[520px]"
                 title="Live Preview" sandbox="allow-scripts allow-same-origin allow-forms allow-popups" />
             </div>
           )}
