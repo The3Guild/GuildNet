@@ -140,6 +140,7 @@ export function updateAgentReputation(accountHash: string, score: number): void 
   const agent = agents.get(accountHash);
   if (agent) {
     agent.reputationScore = score;
+    agent.lastUpdated = new Date().toISOString();
     agents.set(accountHash, agent);
     saveLocal();
   }
@@ -150,6 +151,46 @@ export function incrementAgentTasks(accountHash: string): void {
   const agent = agents.get(accountHash);
   if (agent) {
     agent.tasksCompleted += 1;
+    agents.set(accountHash, agent);
+    saveLocal();
+  }
+}
+
+function computeScore(completed: number, failed: number): number {
+  const total = completed + failed;
+  if (total === 0) return 5000;
+  const weightedTotal = completed + failed * 2;
+  return Math.min(9900, Math.max(100, Math.floor((completed / weightedTotal) * 10000)));
+}
+
+/**
+ * Record a successful task completion for an agent.
+ * Increments tasksCompleted, recomputes the trust score, and persists.
+ */
+export function recordAgentCompletion(accountHash: string): void {
+  loadLocal();
+  const agent = agents.get(accountHash);
+  if (agent) {
+    agent.tasksCompleted += 1;
+    agent.reputationScore = computeScore(agent.tasksCompleted, agent.tasksFailed);
+    agent.lastUpdated = new Date().toISOString();
+    agents.set(accountHash, agent);
+    saveLocal();
+  }
+}
+
+/**
+ * Record a failed / disputed task for an agent.
+ * Increments tasksFailed, recomputes the trust score, and persists.
+ * Failures carry double weight in the scoring formula.
+ */
+export function recordAgentFailure(accountHash: string): void {
+  loadLocal();
+  const agent = agents.get(accountHash);
+  if (agent) {
+    agent.tasksFailed += 1;
+    agent.reputationScore = computeScore(agent.tasksCompleted, agent.tasksFailed);
+    agent.lastUpdated = new Date().toISOString();
     agents.set(accountHash, agent);
     saveLocal();
   }

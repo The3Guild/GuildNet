@@ -24,8 +24,6 @@ import {
   getAllAgents,
   getAgentsByCapability,
   syncWithChain,
-  updateAgentReputation,
-  incrementAgentTasks,
   type AgentRecord,
 } from "./agentStore";
 
@@ -606,8 +604,8 @@ async function hireAndPay(
     console.warn(`[Coordinator] Failed to persist settlement: ${e}`);
   }
 
-  // 4. Update local agent store
-  incrementAgentTasks(agent.accountHash);
+  // Note: tasksCompleted is incremented in completeTaskOnChain() when the task
+  // actually finishes, not here at hire time.
 }
 
 // ── Complete task on-chain: store result hash, trigger reputation ────────────
@@ -624,22 +622,15 @@ async function completeTaskOnChain(
     });
     console.log(`[Coordinator] Task ${taskId} completed on-chain. Result hash: ${resultHash}`);
 
-    // Reputation is updated by the TaskCoordinator contract calling AgentReputation.
-    // Also update our local store to reflect the on-chain reputation change.
+    // Reputation is updated on-chain by the TaskCoordinator → AgentReputation pipeline.
+    // Odra Mapping storage is NOT readable via named keys, so we mirror the
+    // score computation locally using the same formula as the contract:
+    //   weighted_total = completed + (failed × 2)
+    //   score = clamp(completed / weighted_total × 10000, 100, 9900)
     for (const agent of agentsHired) {
       try {
-        // Query updated score from chain
-        const score = await queryContractVar(`reputation_score_${agent.accountHash}`);
-        if (score !== undefined) {
-          updateAgentReputation(agent.accountHash, Number(score));
-        } else {
-          // If we can't query the score, apply the formula locally
-          const newTasksCompleted = agent.tasksCompleted + 1;
-          const failedCount = agent.tasksFailed ?? 0;
-          const weightedTotal = newTasksCompleted + failedCount * 2;
-          const rawScore = Math.min(9900, Math.max(100, Math.floor((newTasksCompleted / Math.max(1, weightedTotal)) * 10000)));
-          updateAgentReputation(agent.accountHash, rawScore);
-        }
+        const { recordAgentCompletion } = await import("./agentStore");
+        recordAgentCompletion(agent.accountHash);
       } catch {
         // Reputation update is non-critical
       }

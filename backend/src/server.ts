@@ -35,12 +35,12 @@ app.get("/agents", async (_req: Request, res: Response, next: NextFunction) => {
   try {
     const agents = await findAllAgents();
 
-    // Enrich with on-chain reputation data (best-effort)
+    // Enrich with local reputation data (Odra Mappings are not readable via named keys)
     const enriched = await Promise.all(agents.map(async (agent) => {
       try {
-        const rep = await getReputation(agent.accountHash);
+        const rep = await getReputation(agent.accountHash, agent);
         if (!rep) {
-          // Agent has no on-chain reputation data yet
+          // Agent has no reputation data yet (new agent)
           return { ...agent, reputationScore: null, tasksFailed: null, lastUpdated: null };
         }
         return {
@@ -65,8 +65,12 @@ app.get("/agents", async (_req: Request, res: Response, next: NextFunction) => {
 app.get("/agents/:accountHash/reputation", async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { accountHash } = req.params;
+    // Look up agent record from local store for reputation data
+    const { getAllAgents } = await import("./agentStore");
+    const allAgents = getAllAgents();
+    const agentRecord = allAgents.find(a => a.accountHash === accountHash) ?? null;
     const [rep, events] = await Promise.all([
-      getReputation(accountHash),
+      getReputation(accountHash, agentRecord),
       getReputationEvents(accountHash),
     ]);
     res.json({ reputation: rep, events });

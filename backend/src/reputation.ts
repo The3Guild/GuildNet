@@ -1,16 +1,19 @@
 /**
- * reputation.ts — Live Trust Ledger
+ * reputation.ts — Trust Ledger
  *
- * Reads reputation data from the AgentReputation contract via two-tier fallback:
- *   1. Direct Casper RPC query_global_state
- *   2. CSPR.cloud named-keys API fallback
+ * Reads reputation data from the local agentStore (which mirrors on-chain
+ * state). Also supports fetching ReputationRecorded events from CSPR.cloud
+ * for audit trail / enrichment.
  *
- * Also exports getReputationEvents() to fetch ReputationRecorded events
- * from the CSPR.cloud events API.
+ * Odra Mapping storage is NOT readable via named keys — individual mapping
+ * entries can only be accessed via dictionary reads or view entry points.
+ * Since the backend is the one calling record_completion / record_failure,
+ * the local store is the authoritative source for real-time reputation.
  */
 
 import { config } from "./config";
 import { csproCloudGet } from "./chain";
+import { type AgentRecord } from "./agentStore";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -29,106 +32,33 @@ export interface ReputationEvent {
   timestamp:   string;
 }
 
-// ── Two-tier fallback query ──────────────────────────────────────────────────
-
-let _sdk: any = null;
-
-async function getSdk() {
-  if (!_sdk) {
-    const casperSdk = await import("casper-js-sdk");
-    _sdk = casperSdk.default ?? casperSdk;
-  }
-  return _sdk;
-}
+// ── Local-store backed reputation query ──────────────────────────────────────
 
 /**
- * Query a named key from the AgentReputation contract.
- * Two-tier fallback: direct CSPRPC → CSPR.cloud named-keys API.
+ * Get reputation data for an agent from the local agentStore.
+ * The local store is kept in sync by recordAgentCompletion() / recordAgentFailure()
+ * which are called after every on-chain complete_task / flag_agent_failure.
  */
-async function queryReputationVar(varName: string): Promise<string | undefined> {
-  const contractHash = config.contracts.agentReputation.replace("hash-", "");
-
-  // Attempt 1 — direct Casper RPC via queryLatestGlobalState
-  try {
-    const sdk = await getSdk();
-    const { RpcClient } = sdk;
-    const { AxiosHandler } = await import("./casperHandler");
-    const rpc = new RpcClient(new AxiosHandler(config.casperNodeRpc));
-    const result = await rpc.queryLatestGlobalState(
-      `hash-${contractHash}`,
-      [varName],
-    );
-    const clv = result.storedValue?.clValue;
-    if (clv?.toString) {
-      return clv.toString();
-    }
-  } catch (err) {
-    console.warn(`[Reputation] RPC queryReputationVar(${varName}) failed: ${err}`);
-  }
-
-  // Attempt 2 — CSPR.cloud named-keys API (reliable fallback)
-  try {
-    const data = await csproCloudGet(
-      `/contracts/${contractHash}/named-keys`
-    ) as { data?: Array<{ name: string; value: string }> };
-    for (const entry of (data.data ?? [])) {
-      if (entry.name === varName) {
-        return entry.value;
-      }
-    }
-  } catch (err) {
-    console.warn(`[Reputation] CSPR.cloud queryReputationVar(${varName}) failed: ${err}`);
-  }
-
-  return undefined;
-}
-
-/**
- * Get reputation data for an agent from the AgentReputation contract.
- * Returns tasksCompleted, tasksFailed, score, and lastUpdated.
- * Returns null if no on-chain reputation data exists for this agent.
- */
-export async function getReputation(agentHash: string): Promise<ReputationData | null> {
-  try {
-    const [completedStr, failedStr, scoreStr] = await Promise.all([
-      queryReputationVar(`reputation_completed_${agentHash}`),
-      queryReputationVar(`reputation_failed_${agentHash}`),
-      queryReputationVar(`reputation_score_${agentHash}`),
-    ]);
-
-    // If none of the three queries returned data, this agent has no on-chain reputation
-    const hasAnyData = completedStr !== undefined || failedStr !== undefined || scoreStr !== undefined;
-    if (!hasAnyData) {
-      return null;
-    }
-
-    const data: ReputationData = {
-      tasksCompleted: completedStr !== undefined ? Number(BigInt(completedStr)) : 0,
-      tasksFailed:    failedStr !== undefined    ? Number(BigInt(failedStr))    : 0,
-      score:          scoreStr !== undefined      ? Number(BigInt(scoreStr))      : 0,
-      lastUpdated:    new Date(0).toISOString(),
-    };
-
-    // Try to get last event timestamp from CSPR.cloud events
-    try {
-      const events = await getReputationEvents(agentHash);
-      if (events.length > 0) {
-        data.lastUpdated = events[events.length - 1].timestamp;
-      }
-    } catch {
-      // Non-critical — use epoch default
-    }
-
-    return data;
-  } catch (err) {
-    console.warn(`[Reputation] Failed to fetch reputation for ${agentHash.slice(0, 14)}…: ${err}`);
-    return null;
-  }
+export async function getReputation(
+  agentHash: string,
+  agentRecord?: AgentRecord | null,
+): Promise<ReputationData | null> {
+  if (!agentRecord) return null;
+  return {
+    tasksCompleted: agentRecord.tasksCompleted,
+    tasksFailed:    agentRecord.tasksFailed,
+    score:          agentRecord.reputationScore,
+    lastUpdated:    agentRecord.lastUpdated ?? new Date(0).toISOString(),
+  };
 }
 
 /**
  * Fetch ReputationRecorded events from CSPR.cloud for a given agent.
  * These are emitted by the AgentReputation contract on each task completion.
+ *
+ * CSPR.cloud returns hex-encoded CL values for event fields. We attempt
+ * to decode the standard CL serialization layout:
+ *   Address (32 bytes) | u64 task_id | u32 score | u64 tasks_completed | u64 tasks_failed
  */
 export async function getReputationEvents(agentHash: string): Promise<ReputationEvent[]> {
   try {
@@ -138,18 +68,21 @@ export async function getReputationEvents(agentHash: string): Promise<Reputation
 
     const events: ReputationEvent[] = [];
     for (const evt of (data.data ?? [])) {
-      if (evt.event_name === "ReputationRecorded") {
-        // Parse the CL value — format: (account_hash, task_id, score, completed)
-        const match = evt.cl_value?.match(/"([^"]+)".*"([^"]+)".*(\d+).*\((true|false)\)/);
-        if (match && match[1] === agentHash) {
+      if (evt.event_name !== "ReputationRecorded") continue;
+
+      try {
+        const parsed = parseReputationRecorded(evt.cl_value);
+        if (parsed && parsed.agent === agentHash) {
           events.push({
-            agent:     match[1],
-            taskId:    match[2],
-            score:     Number(match[3]),
-            completed: match[4] === "true",
+            agent:     parsed.agent,
+            taskId:    String(parsed.taskId),
+            score:     parsed.score,
+            completed: parsed.completed,
             timestamp: evt.timestamp,
           });
         }
+      } catch {
+        // Unparseable CL value — skip this event
       }
     }
     return events;
@@ -157,4 +90,80 @@ export async function getReputationEvents(agentHash: string): Promise<Reputation
     console.warn(`[Reputation] Failed to fetch events for ${agentHash.slice(0, 14)}…: ${err}`);
     return [];
   }
+}
+
+// ── CL hex value parser for ReputationRecorded events ────────────────────────
+
+interface ParsedReputationEvent {
+  agent:     string;
+  taskId:    number;
+  score:     number;
+  completed: boolean;
+}
+
+/**
+ * Parse hex-encoded CL values from a ReputationRecorded event.
+ *
+ * CL type tags (first byte of each value):
+ *   0x01 = Key (Address is stored as a 32-byte Key)
+ *   0x04 = U32
+ *   0x05 = U64
+ *   0x09 = String
+ *
+ * ReputationRecorded layout:
+ *   [0x01] [32 bytes address]    — agent
+ *   [0x05] [8 bytes LE]          — task_id
+ *   [0x04] [4 bytes LE]          — score
+ *   [0x05] [8 bytes LE]          — tasks_completed
+ *   [0x05] [8 bytes LE]          — tasks_failed
+ */
+function parseReputationRecorded(hex: string): ParsedReputationEvent | null {
+  const clean = hex.replace(/^0x/i, "");
+  if (clean.length < 66) return null; // minimum: 1 tag + 32 addr + 1 tag + 8 task_id
+
+  let offset = 0;
+  const readByte = () => parseInt(clean.slice(offset, offset + 2), 16);
+  const readBytes = (n: number) => {
+    const bytes = clean.slice(offset, offset + n * 2);
+    offset += n * 2;
+    return bytes;
+  };
+
+  // Agent address — Key type (tag 0x01), 32 bytes
+  const addrTag = readByte();
+  if (addrTag !== 0x01) return null;
+  const agentHex = readBytes(32);
+  // Address is stored as "00" + raw key hex in Casper
+  const agent = "00" + agentHex;
+
+  // task_id — U64 type (tag 0x05), 8 bytes LE
+  const taskIdTag = readByte();
+  if (taskIdTag !== 0x05) return null;
+  const taskIdHex = readBytes(8);
+  const taskId = Number(BigInt("0x" + taskIdHex.split("").reverse().join("")));
+
+  // score — U32 type (tag 0x04), 4 bytes LE
+  const scoreTag = readByte();
+  if (scoreTag !== 0x04) return null;
+  const scoreHex = readBytes(4);
+  const score = parseInt(scoreHex.split("").reverse().join(""), 16);
+
+  // tasks_completed — U64 type (tag 0x05), 8 bytes LE
+  const completedTag = readByte();
+  if (completedTag !== 0x05) return null;
+  const completedHex = readBytes(8);
+  const tasksCompleted = Number(BigInt("0x" + completedHex.split("").reverse().join("")));
+
+  // tasks_failed — U64 type (tag 0x05), 8 bytes LE
+  const failedTag = readByte();
+  if (failedTag !== 0x05) return null;
+  const failedHex = readBytes(8);
+  const tasksFailed = Number(BigInt("0x" + failedHex.split("").reverse().join("")));
+
+  return {
+    agent,
+    taskId,
+    score,
+    completed: tasksCompleted > 0 && tasksFailed === 0,
+  };
 }
