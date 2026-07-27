@@ -28,7 +28,7 @@ export interface ReputationEvent {
   agent:       string;
   taskId:      string;
   score:       number;
-  completed:   boolean;
+  success:     boolean;
   timestamp:   string;
 }
 
@@ -77,7 +77,7 @@ export async function getReputationEvents(agentHash: string): Promise<Reputation
             agent:     parsed.agent,
             taskId:    String(parsed.taskId),
             score:     parsed.score,
-            completed: parsed.completed,
+            success:   parsed.success,
             timestamp: evt.timestamp,
           });
         }
@@ -98,7 +98,7 @@ interface ParsedReputationEvent {
   agent:     string;
   taskId:    number;
   score:     number;
-  completed: boolean;
+  success:   boolean;
 }
 
 /**
@@ -119,10 +119,15 @@ interface ParsedReputationEvent {
  */
 function parseReputationRecorded(hex: string): ParsedReputationEvent | null {
   const clean = hex.replace(/^0x/i, "");
-  if (clean.length < 66) return null; // minimum: 1 tag + 32 addr + 1 tag + 8 task_id
+  // minimum: 1 tag + 32 addr + 1 tag + 8 task_id + 1 tag + 4 score + 1 tag + 8 completed + 1 tag + 8 failed = 64 bytes = 128 hex
+  if (clean.length < 128) return null;
 
   let offset = 0;
-  const readByte = () => parseInt(clean.slice(offset, offset + 2), 16);
+  const readByte = () => {
+    const byte = parseInt(clean.slice(offset, offset + 2), 16);
+    offset += 2;
+    return byte;
+  };
   const readBytes = (n: number) => {
     const bytes = clean.slice(offset, offset + n * 2);
     offset += n * 2;
@@ -164,7 +169,7 @@ function parseReputationRecorded(hex: string): ParsedReputationEvent | null {
     agent,
     taskId,
     score,
-    completed: tasksCompleted > 0 && tasksFailed === 0,
+    success: tasksCompleted > tasksFailed,
   };
 }
 
@@ -258,7 +263,11 @@ interface ParsedAgentRegistered {
 function parseAgentRegistered(hex: string): ParsedAgentRegistered | null {
   const clean = hex.replace(/^0x/i, "");
   let offset = 0;
-  const readByte = () => parseInt(clean.slice(offset, offset + 2), 16);
+  const readByte = () => {
+    const byte = parseInt(clean.slice(offset, offset + 2), 16);
+    offset += 2;
+    return byte;
+  };
   const readBytes = (n: number) => {
     const bytes = clean.slice(offset, offset + n * 2);
     offset += n * 2;
@@ -308,7 +317,11 @@ interface ParsedReputationUpdated {
 function parseReputationUpdated(hex: string): ParsedReputationUpdated | null {
   const clean = hex.replace(/^0x/i, "");
   let offset = 0;
-  const readByte = () => parseInt(clean.slice(offset, offset + 2), 16);
+  const readByte = () => {
+    const byte = parseInt(clean.slice(offset, offset + 2), 16);
+    offset += 2;
+    return byte;
+  };
   const readBytes = (n: number) => {
     const bytes = clean.slice(offset, offset + n * 2);
     offset += n * 2;
@@ -339,7 +352,11 @@ interface ParsedAgentDeactivated {
 function parseAgentDeactivated(hex: string): ParsedAgentDeactivated | null {
   const clean = hex.replace(/^0x/i, "");
   let offset = 0;
-  const readByte = () => parseInt(clean.slice(offset, offset + 2), 16);
+  const readByte = () => {
+    const byte = parseInt(clean.slice(offset, offset + 2), 16);
+    offset += 2;
+    return byte;
+  };
   const readBytes = (n: number) => {
     const bytes = clean.slice(offset, offset + n * 2);
     offset += n * 2;

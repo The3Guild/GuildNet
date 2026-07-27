@@ -231,7 +231,7 @@ export default function AgentTrustPage() {
                   </p>
                   <p className="text-[11px] text-slate-500">
                     <Clock className="w-2.5 h-2.5 inline mr-1" />
-                    {new Date(ev.timestamp * 1000).toLocaleString()}
+                    {new Date(typeof ev.timestamp === "string" ? ev.timestamp : ev.timestamp * 1000).toLocaleString()}
                   </p>
                 </div>
                 {ev.deployHash && (

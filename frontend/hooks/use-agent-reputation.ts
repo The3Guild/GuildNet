@@ -12,7 +12,7 @@ export interface ReputationData {
 
 export interface ReputationEvent {
   agent:        string;
-  taskId:       number;
+  taskId:       string;
   success:      boolean;
   timestamp:    number;
   deployHash?:  string;

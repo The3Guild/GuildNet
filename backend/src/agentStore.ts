@@ -117,6 +117,11 @@ export async function syncWithChain(): Promise<void> {
         existing.reputationScore = agent.reputationScore;
         existing.active = agent.active;
         existing.source = "on-chain";
+      } else if (existing.source === "on-chain") {
+        // Refresh on-chain agent with latest data
+        existing.reputationScore = agent.reputationScore;
+        existing.active = agent.active;
+        existing.lastUpdated = new Date().toISOString();
       }
     }
 

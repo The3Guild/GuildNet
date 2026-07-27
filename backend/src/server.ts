@@ -96,7 +96,7 @@ app.post("/agents/:accountHash/rate", limiter, async (req: Request, res: Respons
     const { accountHash } = req.params;
     const { rating } = req.body as { rating: number };
 
-    if (typeof rating !== "number" || rating < 1 || rating > 5) {
+    if (typeof rating !== "number" || !Number.isFinite(rating) || rating < 1 || rating > 5) {
       res.status(400).json({ error: "rating must be a number between 1 and 5" });
       return;
     }
