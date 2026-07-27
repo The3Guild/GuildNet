@@ -20,12 +20,12 @@ describe("reputation types", () => {
       agent:     "00" + "a".repeat(64),
       taskId:    "42",
       score:     8000,
-      completed: true,
+      success:   true,
       timestamp: new Date().toISOString(),
     };
     expect(event.agent).toHaveLength(66);
     expect(event.taskId).toBe("42");
-    expect(event.completed).toBe(true);
+    expect(event.success).toBe(true);
   });
 });
 

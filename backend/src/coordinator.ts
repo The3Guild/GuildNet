@@ -538,7 +538,6 @@ async function callAgent(
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          taskId:       _currentTaskId,
           capability,
           description:  taskDescription,
           context,
