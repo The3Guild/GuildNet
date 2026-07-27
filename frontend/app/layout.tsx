@@ -21,6 +21,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         </div>
         <div id="root" className="overflow-x-hidden">
           <div className="bg-mesh" />
+          <div className="bg-grid" />
           <Providers>
             <AppShell>{children}</AppShell>
           </Providers>

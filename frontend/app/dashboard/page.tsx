@@ -58,10 +58,10 @@ export default function DashboardPage() {
   const eliteCount = agents.filter(a => (a.reputationScore ?? 5000) >= 8000).length;
 
   const STATS = [
-    { label: "Agents",      value: agentCount, sub: chainReadOk ? "registered" : "est. local", icon: Users,      color: "text-cyan-400",   bg: "from-cyan-500/15 to-cyan-500/5"    },
-    { label: "Tasks",       value: taskCount,  sub: chainReadOk ? "on-chain" : "est. local",   icon: Zap,        color: "text-violet-400", bg: "from-violet-500/15 to-violet-500/5" },
-    { label: "Avg. Rep.",   value: String(avgRep), sub: "score / 10000", icon: Shield,   color: "text-amber-400",  bg: "from-amber-500/15 to-amber-500/5"   },
-    { label: "Sessions",    value: String(history.length), sub: "local", icon: Activity,   color: "text-blue-400",   bg: "from-blue-500/15 to-blue-500/5"     },
+    { label: "Agents",      value: agentCount, sub: chainReadOk ? "registered" : "est. local", icon: Users,    color: "text-cyan-400",   bg: "from-cyan-500/15 to-cyan-500/5"    },
+    { label: "Tasks",       value: taskCount,  sub: chainReadOk ? "on-chain" : "est. local",   icon: Zap,      color: "text-violet-400", bg: "from-violet-500/15 to-violet-500/5" },
+    { label: "Avg. Rep.",   value: String(avgRep), sub: "score / 10000", icon: Shield, color: "text-amber-400",  bg: "from-amber-500/15 to-amber-500/5"   },
+    { label: "Sessions",    value: String(history.length), sub: "local", icon: Activity, color: "text-emerald-400", bg: "from-emerald-500/15 to-emerald-500/5" },
   ];
 
   return (
@@ -76,20 +76,21 @@ export default function DashboardPage() {
         </Link>
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      {/* Stats grid */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 stagger">
         {STATS.map(({ label, value, sub, icon: Icon, color, bg }) => (
           <div key={label} className="glass-card stat-card p-4 glow-hover">
-            <div className={`w-7 h-7 rounded-lg bg-gradient-to-br ${bg} flex items-center justify-center mb-3`}>
-              <Icon className={`w-3.5 h-3.5 ${color}`} />
+            <div className={`w-8 h-8 rounded-xl bg-gradient-to-br ${bg} flex items-center justify-center mb-3`}>
+              <Icon className={`w-4 h-4 ${color}`} />
             </div>
-            <p className="text-lg font-bold text-white tabular-nums">{value}</p>
-            <p className="text-xs text-slate-500 mt-0.5">{label}</p>
+            <p className="text-xl font-bold text-white tabular-nums">{value}</p>
+            <p className="text-xs text-slate-500 mt-0.5 font-medium">{label}</p>
             <p className="text-[10px] text-slate-600 mt-0.5 uppercase tracking-wide">{sub}</p>
           </div>
         ))}
       </div>
 
-      {/* Reputation overview card */}
+      {/* Reputation overview */}
       {agents.length > 0 && (
         <div className="glass-card p-5">
           <div className="flex items-center gap-2 mb-4">
@@ -100,7 +101,7 @@ export default function DashboardPage() {
             <div>
               <p className="text-xs text-slate-500 mb-1">Average Score</p>
               <div className="flex items-baseline gap-1.5">
-                <span className="text-xl font-bold text-white tabular-nums">{avgRep}</span>
+                <span className="text-2xl font-bold text-white tabular-nums">{avgRep}</span>
                 <span className="text-[11px] text-slate-600">/10000</span>
               </div>
               <div className="rep-bar-track mt-2">
@@ -111,25 +112,27 @@ export default function DashboardPage() {
             <div>
               <p className="text-xs text-slate-500 mb-1">Elite Agents</p>
               <div className="flex items-baseline gap-1.5">
-                <span className="text-xl font-bold text-white tabular-nums">{eliteCount}</span>
+                <span className="text-2xl font-bold text-white tabular-nums">{eliteCount}</span>
                 <span className="text-[11px] text-slate-600">/ {agents.length}</span>
               </div>
-              <p className="text-[10px] text-green-400 mt-1">Score ≥ 8000</p>
+              <p className="text-[10px] text-emerald-400 mt-1 font-medium">Score &ge; 8000</p>
             </div>
             <div>
               <p className="text-xs text-slate-500 mb-1">Total Earned</p>
               <div className="flex items-baseline gap-1.5">
-                <span className="text-xl font-bold text-white tabular-nums">{totalSpentCSPR.toFixed(1)}</span>
+                <span className="text-2xl font-bold text-white tabular-nums">{totalSpentCSPR.toFixed(1)}</span>
                 <span className="text-[11px] text-slate-600">CSPR</span>
               </div>
-              <p className="text-[10px] text-slate-600 mt-1">From {settlementCount} on-chain settlements</p>
+              <p className="text-[10px] text-slate-600 mt-1">From {settlementCount} settlements</p>
             </div>
           </div>
         </div>
       )}
 
+      {/* Task creator */}
       <TaskCreator onTaskComplete={(t: TaskRecord) => addTask(t)} />
 
+      {/* Live agents */}
       <div>
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-sm font-semibold text-white">Live Agents</h2>
@@ -147,7 +150,7 @@ export default function DashboardPage() {
             <Link href="/register" className="text-xs text-cyan-400 hover:underline">Register the first agent →</Link>
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 stagger">
             {agents.slice(0, 4).map(a => <AgentCard key={a.name + a.price} {...a} />)}
           </div>
         )}

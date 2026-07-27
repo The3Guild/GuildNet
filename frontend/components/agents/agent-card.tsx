@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Star, Zap, Shield, FlaskConical, Trophy } from "lucide-react";
+import { Star, Zap, Shield, Trophy } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export interface Agent {
@@ -34,7 +34,7 @@ const EMOJIS: Record<string, string> = {
 };
 
 function getRepLevel(score: number) {
-  if (score >= 8000) return { label: "Elite", cls: "rep-excellent", color: "text-green-400", badge: "bg-green-500/10 border-green-500/20 text-green-400" };
+  if (score >= 8000) return { label: "Elite", cls: "rep-excellent", color: "text-emerald-400", badge: "bg-emerald-500/10 border-emerald-500/20 text-emerald-400" };
   if (score >= 6500) return { label: "Trusted", cls: "rep-good", color: "text-lime-400", badge: "bg-lime-500/10 border-lime-500/20 text-lime-400" };
   if (score >= 5000) return { label: "Neutral", cls: "rep-neutral", color: "text-amber-400", badge: "bg-amber-500/10 border-amber-500/20 text-amber-400" };
   if (score >= 3000) return { label: "Risky", cls: "rep-poor", color: "text-orange-400", badge: "bg-orange-500/10 border-orange-500/20 text-orange-400" };
@@ -51,10 +51,11 @@ export function AgentCard({ name, type, description, price, rating, ratingCount,
   const repPercent = repScore != null ? Math.round((repScore / 10000) * 100) : 0;
 
   return (
-    <div className="glass-card p-4 flex flex-col group glow-hover transition-all duration-200 hover:-translate-y-0.5">
+    <div className="glass-card p-4 flex flex-col group glow-hover hover:-translate-y-0.5">
+      {/* Top row: avatar + name + rating */}
       <div className="flex items-start justify-between mb-3">
         <div className="flex items-center gap-3 min-w-0">
-          <div className={cn("w-10 h-10 rounded-xl bg-gradient-to-br flex items-center justify-center text-lg flex-shrink-0 shadow-lg", gradient)}>
+          <div className={cn("w-10 h-10 rounded-xl bg-gradient-to-br flex items-center justify-center text-lg flex-shrink-0 shadow-lg group-hover:scale-105 transition-transform", gradient)}>
             {emoji}
           </div>
           <div className="min-w-0">
@@ -64,21 +65,19 @@ export function AgentCard({ name, type, description, price, rating, ratingCount,
               ) : name}
             </h3>
             <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
-              <span className={cn("w-1.5 h-1.5 rounded-full flex-shrink-0", isOnline ? "bg-green-400 animate-pulse" : "bg-slate-500")} />
+              <span className={cn("w-1.5 h-1.5 rounded-full flex-shrink-0", isOnline ? "bg-emerald-400 shadow-[0_0_6px_rgba(16,185,129,0.4)]" : "bg-slate-500")} />
               <span className="text-[11px] text-slate-500 capitalize">{status}</span>
               {isOnChain && (
-                <span className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-500/10 border border-cyan-500/20 text-cyan-400">on-chain</span>
+                <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 font-medium">on-chain</span>
               )}
               {demo && (
-                <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center gap-0.5">
-                  <FlaskConical className="w-2 h-2" /> demo
-                </span>
+                <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-amber-500/10 border border-amber-500/20 text-amber-400 font-medium">demo</span>
               )}
             </div>
           </div>
         </div>
         {rating != null && (
-          <div className="flex items-center gap-1 px-2 py-0.5 bg-amber-500/8 border border-amber-500/15 rounded-lg flex-shrink-0">
+          <div className="flex items-center gap-1 px-2 py-0.5 bg-amber-500/[0.08] border border-amber-500/15 rounded-lg flex-shrink-0">
             <Star className="w-3 h-3 text-amber-400 fill-amber-400" />
             <span className="text-[11px] font-medium text-amber-300">{rating.toFixed(1)}</span>
             {ratingCount != null && ratingCount > 0 && (
@@ -88,6 +87,7 @@ export function AgentCard({ name, type, description, price, rating, ratingCount,
         )}
       </div>
 
+      {/* Description */}
       <p className="text-xs text-slate-400 leading-relaxed mb-3 flex-1 line-clamp-2">{description}</p>
 
       {/* Reputation bar */}
@@ -112,19 +112,21 @@ export function AgentCard({ name, type, description, price, rating, ratingCount,
         </div>
         <div className="rep-bar-track">
           <div
-            className={cn("rep-bar-fill", rep ? rep.cls : "bg-slate-600")}
-            style={{ width: repScore != null ? `${repPercent}%` : "0%" }}
+            className={cn("rep-bar-fill", rep ? rep.cls : "")}
+            style={{ width: repScore != null ? `${repPercent}%` : "0%", background: !rep ? "rgba(255,255,255,0.1)" : undefined }}
           />
         </div>
       </div>
 
+      {/* Skills */}
       <div className="flex flex-wrap gap-1 mb-3">
         {skills.slice(0, 3).map(s => (
-          <span key={s} className="px-2 py-0.5 text-[10px] bg-white/[0.04] border border-white/[0.06] rounded-md text-slate-500">{s}</span>
+          <span key={s} className="px-2 py-0.5 text-[10px] bg-white/[0.03] border border-white/[0.05] rounded-md text-slate-500 font-medium">{s}</span>
         ))}
       </div>
 
-      <div className="flex items-center justify-between pt-3 border-t border-white/[0.06]">
+      {/* Footer */}
+      <div className="flex items-center justify-between pt-3 border-t border-white/[0.05]">
         <div>
           <span className="text-sm font-bold text-white">{price}</span>
           <span className="text-[11px] text-slate-500 ml-1">CSPR/task</span>
@@ -137,7 +139,7 @@ export function AgentCard({ name, type, description, price, rating, ratingCount,
           )}
           <div className="flex items-center gap-1 text-[11px] text-slate-500">
             <Zap className="w-3 h-3 text-cyan-400/40" />
-            <span>{tasks}</span>
+            <span className="tabular-nums">{tasks}</span>
           </div>
         </div>
       </div>

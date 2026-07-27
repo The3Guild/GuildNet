@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { Search, Bot, ClipboardList, X } from "lucide-react";
+import { Search, Bot, ClipboardList, X, ArrowRight } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useChainAgents } from "@/hooks/use-chain-agents";
 import { useTaskHistory } from "@/hooks/use-task-history";
@@ -61,48 +61,50 @@ export function GlobalSearch() {
       />
       {query && (
         <button onClick={() => { setQuery(""); setOpen(false); }}
-          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white">
+          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white transition-colors">
           <X className="w-3 h-3" />
         </button>
       )}
 
       {open && query && (
-        <div className="absolute top-full mt-2 left-0 right-0 glass-card border border-white/[0.08] rounded-xl overflow-hidden z-50 shadow-2xl">
+        <div className="absolute top-full mt-2 left-0 right-0 glass-card border border-white/[0.06] rounded-xl overflow-hidden z-50 shadow-2xl shadow-black/50">
           {!hasResults && (
             <p className="px-4 py-3 text-xs text-slate-500">No results for &quot;{query}&quot;</p>
           )}
 
           {matchedAgents.length > 0 && (
             <div>
-              <p className="px-3 py-1.5 text-[10px] font-semibold text-slate-500 uppercase tracking-wider border-b border-white/5">Agents</p>
+              <p className="px-3 py-1.5 text-[10px] font-semibold text-slate-500 uppercase tracking-wider border-b border-white/[0.04]">Agents</p>
               {matchedAgents.map(a => (
                 <button key={a.name} onClick={() => { router.push(`/agents?q=${encodeURIComponent(q)}`); setOpen(false); setQuery(""); }}
-                  className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-white/5 transition-colors text-left">
+                  className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-white/[0.04] transition-colors text-left group">
                   <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-cyan-500/20 to-violet-500/20 flex items-center justify-center flex-shrink-0">
                     <Bot className="w-3.5 h-3.5 text-cyan-400" />
                   </div>
-                  <div className="min-w-0">
-                    <p className="text-sm text-white truncate">{a.name}</p>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm text-white truncate group-hover:text-cyan-400 transition-colors">{a.name}</p>
                     <p className="text-[11px] text-slate-500">{a.type} · {a.price} CSPR</p>
                   </div>
+                  <ArrowRight className="w-3 h-3 text-slate-600 group-hover:text-cyan-400 transition-colors flex-shrink-0" />
                 </button>
               ))}
             </div>
           )}
 
           {matchedTasks.length > 0 && (
-            <div className={matchedAgents.length > 0 ? "border-t border-white/5" : ""}>
-              <p className="px-3 py-1.5 text-[10px] font-semibold text-slate-500 uppercase tracking-wider border-b border-white/5">Tasks</p>
+            <div className={matchedAgents.length > 0 ? "border-t border-white/[0.04]" : ""}>
+              <p className="px-3 py-1.5 text-[10px] font-semibold text-slate-500 uppercase tracking-wider border-b border-white/[0.04]">Tasks</p>
               {matchedTasks.map(t => (
                 <button key={t.taskId} onClick={() => { router.push("/tasks"); setOpen(false); setQuery(""); }}
-                  className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-white/5 transition-colors text-left">
-                  <div className="w-7 h-7 rounded-lg bg-green-500/15 flex items-center justify-center flex-shrink-0">
-                    <ClipboardList className="w-3.5 h-3.5 text-green-400" />
+                  className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-white/[0.04] transition-colors text-left group">
+                  <div className="w-7 h-7 rounded-lg bg-emerald-500/10 flex items-center justify-center flex-shrink-0">
+                    <ClipboardList className="w-3.5 h-3.5 text-emerald-400" />
                   </div>
-                  <div className="min-w-0">
-                    <p className="text-sm text-white truncate">{t.description}</p>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm text-white truncate group-hover:text-cyan-400 transition-colors">{t.description}</p>
                     <p className="text-[11px] text-slate-500">#{t.taskId} · {t.agentsHired.length} agents</p>
                   </div>
+                  <ArrowRight className="w-3 h-3 text-slate-600 group-hover:text-cyan-400 transition-colors flex-shrink-0" />
                 </button>
               ))}
             </div>

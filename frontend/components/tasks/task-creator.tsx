@@ -115,16 +115,19 @@ export function TaskCreator({ onTaskComplete }: Props) {
     <div className="glass-card p-6 space-y-5">
       {/* Header */}
       <div className="flex items-center gap-3">
-        <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-cyan-500 to-violet-600 flex items-center justify-center">
-          <Sparkles className="w-4 h-4 text-white" />
+        <div className="relative">
+          <div className="absolute inset-0 rounded-xl bg-gradient-to-br from-cyan-500 to-violet-600 blur-lg opacity-30" />
+          <div className="relative w-9 h-9 rounded-xl bg-gradient-to-br from-cyan-500 to-violet-600 flex items-center justify-center shadow-lg">
+            <Sparkles className="w-4 h-4 text-white" />
+          </div>
         </div>
         <div className="flex-1">
           <h2 className="text-base font-bold text-white">Create Task</h2>
           <p className="text-xs text-slate-500 mt-0.5">Agents self-organize and execute autonomously</p>
         </div>
         <button onClick={() => setAutoMode(p => !p)}
-          className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${autoMode ? "border-cyan-500/40 bg-cyan-500/15 text-cyan-400" : "border-white/10 bg-white/5 text-slate-400"}`}>
-          {autoMode ? "Auto" : "Manual"}
+          className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${autoMode ? "border-cyan-500/30 bg-cyan-500/[0.08] text-cyan-400" : "border-white/[0.08] bg-white/[0.03] text-slate-400 hover:text-white"}`}>
+          {autoMode ? "⚡ Auto" : "✋ Manual"}
         </button>
       </div>
 
@@ -132,7 +135,7 @@ export function TaskCreator({ onTaskComplete }: Props) {
       {(!autoMode || suggesting || step !== "idle") && (
         <div>
           <div className="flex items-center gap-2 mb-2">
-            <p className="text-xs text-slate-500">Agents{autoMode ? " (auto-selected)" : ""}</p>
+            <p className="text-xs text-slate-500 font-medium">Agents{autoMode ? " (auto-selected)" : ""}</p>
             {autoMode && description.trim() && step === "idle" && (
               <button onClick={suggestAgents} disabled={suggesting} className="text-xs text-cyan-400 hover:underline flex items-center gap-1">
                 {suggesting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Wand2 className="w-3 h-3" />} Re-suggest
@@ -145,7 +148,7 @@ export function TaskCreator({ onTaskComplete }: Props) {
               return (
                 <button key={cap} disabled={busy || autoMode}
                   onClick={() => !autoMode && setCapabilities(prev => active && prev.length > 1 ? prev.filter(c => c !== cap) : active ? prev : [...prev, cap])}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all capitalize ${active ? "border-cyan-500/40 bg-cyan-500/15 text-cyan-400" : "border-white/10 bg-white/5 text-slate-500"} ${autoMode ? "cursor-default" : ""}`}>
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all capitalize ${active ? "border-cyan-500/30 bg-cyan-500/[0.08] text-cyan-400" : "border-white/[0.08] bg-white/[0.03] text-slate-500 hover:text-white"} ${autoMode ? "cursor-default" : ""}`}>
                   {cap}
                 </button>
               );
@@ -173,23 +176,48 @@ export function TaskCreator({ onTaskComplete }: Props) {
         </p>
       )}
 
-      {/* Progress */}
+      {/* Pipeline progress */}
       {busy && (
-        <div className="flex flex-wrap gap-1.5">
-          {pipelineKeys.map((key, i) => {
-            const isActive = key === step; const isDone = i < stepIndex;
-            return (
-              <div key={key} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-all ${isActive ? "border-cyan-500/40 bg-cyan-500/15 text-cyan-400 animate-pulse" : isDone ? "border-green-500/25 bg-green-500/10 text-green-400" : "border-white/10 bg-white/5 text-slate-500"}`}>
-                {isActive ? <Loader2 className="w-3 h-3 animate-spin" /> : isDone ? "✓" : ""}{PIPELINE_LABELS[key] ?? key}
-              </div>
-            );
-          })}
+        <div className="space-y-3">
+          {/* Progress bar */}
+          <div className="flex gap-0.5">
+            {pipelineKeys.map((key, i) => {
+              const isActive = key === step;
+              const isDone = i < stepIndex;
+              const progress = Math.max(0, Math.min(1, (stepIndex - i)));
+              return (
+                <div key={key} className="flex-1 h-1 rounded-full overflow-hidden bg-white/[0.05]">
+                  <div className={`h-full rounded-full transition-all duration-700 ${
+                    isDone ? "bg-emerald-400 w-full" : isActive ? "bg-cyan-400 animate-pulse" : "w-0"
+                  }`} />
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Step labels */}
+          <div className="flex flex-wrap gap-1.5">
+            {pipelineKeys.map((key, i) => {
+              const isActive = key === step;
+              const isDone = i < stepIndex;
+              return (
+                <div key={key} className={`pipeline-step flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium ${
+                  isActive ? "pipeline-step-active text-cyan-400 border-cyan-500/30" :
+                  isDone ? "pipeline-step-done text-emerald-400 border-emerald-500/20" :
+                  "border-white/[0.08] bg-white/[0.02] text-slate-600"
+                }`}>
+                  {isActive ? <Loader2 className="w-3 h-3 animate-spin" /> : isDone ? <CheckCircle className="w-3 h-3" /> : null}
+                  {PIPELINE_LABELS[key] ?? key}
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
 
       {/* Error */}
       {step === "error" && (
-        <div className="flex items-start gap-3 p-3 bg-red-500/8 border border-red-500/20 rounded-xl">
+        <div className="flex items-start gap-3 p-3 bg-red-500/[0.06] border border-red-500/20 rounded-xl">
           <AlertCircle className="w-4 h-4 text-red-400 mt-0.5 flex-shrink-0" />
           <p className="text-sm text-red-400">{error}</p>
         </div>
@@ -199,7 +227,7 @@ export function TaskCreator({ onTaskComplete }: Props) {
       {step === "done" && result && (
         <div className="space-y-2">
           <div className="flex items-center gap-2 flex-wrap">
-            <div className="flex items-center gap-1.5 text-green-400">
+            <div className="flex items-center gap-1.5 text-emerald-400">
               <CheckCircle className="w-4 h-4" />
               <span className="text-sm font-medium">Task #{result.taskId} completed</span>
             </div>
@@ -211,26 +239,26 @@ export function TaskCreator({ onTaskComplete }: Props) {
             if (!val) return null;
             const isOpen = expanded === key;
             return (
-              <div key={key} className="border border-white/[0.08] rounded-xl overflow-hidden">
+              <div key={key} className="border border-white/[0.06] rounded-xl overflow-hidden">
                 <button onClick={() => setExpanded(isOpen ? null : key)}
-                  className="w-full flex items-center justify-between px-4 py-3 bg-white/[0.03] hover:bg-white/[0.05] transition-colors text-left">
+                  className="w-full flex items-center justify-between px-4 py-3 bg-white/[0.02] hover:bg-white/[0.04] transition-colors text-left">
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-medium text-white">{OUTPUT_LABELS[key]}</span>
-                    {enhanced[key] && <span className="text-[10px] text-cyan-400 bg-cyan-500/10 px-1.5 py-0.5 rounded">enhanced</span>}
+                    {enhanced[key] && <span className="text-[10px] text-cyan-400 bg-cyan-500/10 px-1.5 py-0.5 rounded-md">enhanced</span>}
                   </div>
                   {isOpen ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
                 </button>
                 {isOpen && (
-                  <div className="border-t border-white/[0.06]">
+                  <div className="border-t border-white/[0.05]">
                     {(key === "design" || (key === "coding" && (val.includes("<!DOCTYPE") || val.includes("<html")))) ? (
                       <div>
-                        <div className="flex items-center justify-between px-4 py-2 bg-black/20 border-b border-white/5">
+                        <div className="flex items-center justify-between px-4 py-2 bg-black/30 border-b border-white/5">
                           <span className="text-xs text-slate-400">
                             {key === "coding" ? "Live app — fully interactive" : "Live design preview"}
                           </span>
                           <div className="flex items-center gap-3">
                             <button onClick={() => { const b = new Blob([val], { type: "text/html" }); const a = document.createElement("a"); a.href = URL.createObjectURL(b); a.download = `${key}-output.html`; a.click(); }}
-                              className="text-xs text-slate-400 hover:text-white">Download</button>
+                              className="text-xs text-slate-400 hover:text-white transition-colors">Download</button>
                             <button onClick={() => { const b = new Blob([val], { type: "text/html" }); window.open(URL.createObjectURL(b), "_blank"); }}
                               className="text-xs text-cyan-400 hover:underline">Fullscreen</button>
                           </div>
@@ -241,7 +269,7 @@ export function TaskCreator({ onTaskComplete }: Props) {
                     ) : (
                       <div className={`px-4 py-4 text-sm leading-relaxed max-h-[500px] overflow-y-auto ${
                         key === "coding" || (key === "report" && val.includes("// === FILE:"))
-                          ? "font-mono text-green-300/80 bg-black/30 whitespace-pre text-xs"
+                          ? "font-mono text-emerald-300/80 bg-black/30 whitespace-pre text-xs"
                           : "text-slate-300 whitespace-pre-wrap"
                       }`}>{val}</div>
                     )}
@@ -251,7 +279,7 @@ export function TaskCreator({ onTaskComplete }: Props) {
                         placeholder="Request improvements..."
                         className="flex-1 input-base px-3 py-2 text-xs" />
                       <button onClick={() => handleEnhance(key)} disabled={!feedback[key]?.trim() || enhancing === key}
-                        className="flex items-center gap-1.5 px-3 py-2 bg-cyan-500/15 border border-cyan-500/25 text-cyan-400 rounded-lg text-xs font-medium hover:bg-cyan-500/25 transition-colors disabled:opacity-30">
+                        className="flex items-center gap-1.5 px-3 py-2 bg-cyan-500/[0.08] border border-cyan-500/25 text-cyan-400 rounded-lg text-xs font-medium hover:bg-cyan-500/[0.15] transition-colors disabled:opacity-30">
                         {enhancing === key ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}Enhance
                       </button>
                     </div>
