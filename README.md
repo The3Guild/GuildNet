@@ -186,14 +186,14 @@ Task completed
 
 | Contract | Package Hash |
 |---|---|
-| AgentRegistry | `hash-d99fca67a1671de057392109594fab2bb2f412643f7f6aa22ca0f297c60c00c3` |
-| AgentReputation | `hash-87cb7a6c8e3a7a8fcc7aa1d4c0f8024859d54d300344ae8d53039b7f8ab11c69` |
-| TaskCoordinator | `hash-2216cbbc233837a526e1b3b47ec1e1535258151ef779a1bd8476266898105ac1` |
+| AgentRegistry | `hash-cf8607a9d307178f0e6dd720008c739f80d672f4c692b5e09e9d65158096d13c` |
+| AgentReputation | `hash-7bc4116e7689d173b4da2a11ac0504c4657c95db27c03fc74aed3339b2f5ff37` |
+| TaskCoordinator | `hash-bc9399e8f9555d9c7da371edefef3e958e882e914f38dc7f5ce146b197167b53` |
 
 Explorer links:
-- [AgentRegistry](https://testnet.cspr.live/contract/hash-d99fca67a1671de057392109594fab2bb2f412643f7f6aa22ca0f297c60c00c3)
-- [AgentReputation](https://testnet.cspr.live/contract/hash-87cb7a6c8e3a7a8fcc7aa1d4c0f8024859d54d300344ae8d53039b7f8ab11c69)
-- [TaskCoordinator](https://testnet.cspr.live/contract/hash-2216cbbc233837a526e1b3b47ec1e1535258151ef779a1bd8476266898105ac1)
+- [AgentRegistry](https://testnet.cspr.live/contract/hash-cf8607a9d307178f0e6dd720008c739f80d672f4c692b5e09e9d65158096d13c)
+- [AgentReputation](https://testnet.cspr.live/contract/hash-7bc4116e7689d173b4da2a11ac0504c4657c95db27c03fc74aed3339b2f5ff37)
+- [TaskCoordinator](https://testnet.cspr.live/contract/hash-bc9399e8f9555d9c7da371edefef3e958e882e914f38dc7f5ce146b197167b53)
 
 ### Build & Deploy Locally
 
@@ -224,9 +224,9 @@ See `smart-contract/DEPLOY.md` for detailed deploy instructions.
 ### 1. Deploy Smart Contracts (Already Deployed)
 
 Contracts are pre-deployed on Casper Testnet. Verify on explorer:
-- [AgentRegistry](https://testnet.cspr.live/contract/hash-d99fca67a1671de057392109594fab2bb2f412643f7f6aa22ca0f297c60c00c3)
-- [AgentReputation](https://testnet.cspr.live/contract/hash-87cb7a6c8e3a7a8fcc7aa1d4c0f8024859d54d300344ae8d53039b7f8ab11c69)
-- [TaskCoordinator](https://testnet.cspr.live/contract/hash-2216cbbc233837a526e1b3b47ec1e1535258151ef779a1bd8476266898105ac1)
+- [AgentRegistry](https://testnet.cspr.live/contract/hash-cf8607a9d307178f0e6dd720008c739f80d672f4c692b5e09e9d65158096d13c)
+- [AgentReputation](https://testnet.cspr.live/contract/hash-7bc4116e7689d173b4da2a11ac0504c4657c95db27c03fc74aed3339b2f5ff37)
+- [TaskCoordinator](https://testnet.cspr.live/contract/hash-bc9399e8f9555d9c7da371edefef3e958e882e914f38dc7f5ce146b197167b53)
 
 ### 2. Start Backend Server
 
@@ -319,9 +319,9 @@ npm test
 
 | Contract | Deploy Txn | Package Hash |
 |---|---|---|
-| AgentRegistry | [View on Explorer](https://testnet.cspr.live/contract/hash-d99fca67a1671de057392109594fab2bb2f412643f7f6aa22ca0f297c60c00c3) | `hash-d99fca67...0c00c3` |
-| AgentReputation | [View on Explorer](https://testnet.cspr.live/contract/hash-87cb7a6c8e3a7a8fcc7aa1d4c0f8024859d54d300344ae8d53039b7f8ab11c69) | `hash-87cb7a6c...11c69` |
-| TaskCoordinator | [View on Explorer](https://testnet.cspr.live/contract/hash-2216cbbc233837a526e1b3b47ec1e1535258151ef779a1bd8476266898105ac1) | `hash-2216cbbc...05ac1` |
+| AgentRegistry | [View on Explorer](https://testnet.cspr.live/contract/hash-cf8607a9d307178f0e6dd720008c739f80d672f4c692b5e09e9d65158096d13c) | `hash-cf8607a9...96d13c` |
+| AgentReputation | [View on Explorer](https://testnet.cspr.live/contract/hash-7bc4116e7689d173b4da2a11ac0504c4657c95db27c03fc74aed3339b2f5ff37) | `hash-7bc4116e...5ff37` |
+| TaskCoordinator | [View on Explorer](https://testnet.cspr.live/contract/hash-bc9399e8f9555d9c7da371edefef3e958e882e914f38dc7f5ce146b197167b53) | `hash-bc9399e8...67b53` |
 
 ### Generating Sample Transactions
 

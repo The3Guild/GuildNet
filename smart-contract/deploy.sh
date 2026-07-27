@@ -45,13 +45,31 @@ wait_for_txn() {
     local result
     result=$(source $HOME/.cargo/env && casper-client get-txn \
       --node-address "$NODE" "$hash" 2>&1) || true
-    if echo "$result" | grep -q '"Success"'; then
+    # Check for execution_result
+    local error_msg
+    error_msg=$(echo "$result" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    r = d.get('result', {})
+    ei = r.get('execution_info', {})
+    er = ei.get('execution_result', {})
+    v2 = er.get('Version2', {})
+    msg = v2.get('error_message')
+    # Casper 2.0: null/None/empty means success
+    if msg is None or msg == '' or msg == 'null':
+        print('SUCCESS')
+    else:
+        print(msg)
+except:
+    print('')
+" 2>/dev/null)
+    if [ "$error_msg" = "SUCCESS" ]; then
       ok "$label succeeded"
-      echo "$result" | grep '"transaction_hash"' | head -1
       return 0
-    elif echo "$result" | grep -q '"Failure"'; then
-      echo "$result" | grep '"error_message"' | head -1
-      fail "$label FAILED"
+    elif [ -n "$error_msg" ] && [ "$error_msg" != "" ]; then
+      echo "  Error: $error_msg"
+      fail "$label FAILED: $error_msg"
     fi
   done
   fail "$label timed out after 240s"
@@ -59,6 +77,7 @@ wait_for_txn() {
 
 deploy_contract() {
   local name="$1"
+  local key_name="$2"
   local wasm="$WASM_DIR/${name}.wasm"
   [ -f "$wasm" ] || fail "Wasm not found: $wasm"
 
@@ -71,6 +90,7 @@ deploy_contract() {
     --wasm-path "$wasm" \
     --session-entry-point "call" \
     --install-upgrade \
+    --session-args-json "[{\"name\":\"odra_cfg_package_hash_key_name\",\"type\":\"String\",\"value\":\"$key_name\"},{\"name\":\"odra_cfg_allow_key_override\",\"type\":\"Bool\",\"value\":false},{\"name\":\"odra_cfg_is_upgradable\",\"type\":\"Bool\",\"value\":true},{\"name\":\"odra_cfg_is_upgrade\",\"type\":\"Bool\",\"value\":false}]" \
     --payment-amount "$DEPLOY_GAS" \
     --transferred-value 0 \
     --gas-price-tolerance 1 \
@@ -139,21 +159,21 @@ log "Deployer public key: ${PUBKEY:0:20}…"
 
 # ── 1. Deploy AgentRegistry ───────────────────────────────────────────────────
 echo "[1/6] Deploying AgentRegistry…"
-REGISTRY_TXN=$(deploy_contract "AgentRegistry")
+REGISTRY_TXN=$(deploy_contract "AgentRegistry" "agent_registry_package_hash")
 echo "      tx: $REGISTRY_TXN"
 echo "      🔗 https://testnet.cspr.live/deploy/$REGISTRY_TXN"
 
 # ── 2. Deploy AgentReputation ─────────────────────────────────────────────────
 echo ""
 echo "[2/6] Deploying AgentReputation…"
-REPUTATION_TXN=$(deploy_contract "AgentReputation")
+REPUTATION_TXN=$(deploy_contract "AgentReputation" "agent_reputation_package_hash")
 echo "      tx: $REPUTATION_TXN"
 echo "      🔗 https://testnet.cspr.live/deploy/$REPUTATION_TXN"
 
 # ── 3. Deploy TaskCoordinator ─────────────────────────────────────────────────
 echo ""
 echo "[3/6] Deploying TaskCoordinator…"
-COORDINATOR_TXN=$(deploy_contract "TaskCoordinator")
+COORDINATOR_TXN=$(deploy_contract "TaskCoordinator" "task_coordinator_package_hash")
 echo "      tx: $COORDINATOR_TXN"
 echo "      🔗 https://testnet.cspr.live/deploy/$COORDINATOR_TXN"
 
