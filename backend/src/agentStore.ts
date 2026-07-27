@@ -22,8 +22,6 @@ const ACCOUNT_HASH_RE = /^00[0-9a-f]{64}$/i;
 
 let agents: Map<string, AgentRecord> = new Map();
 let loaded = false;
-let lastChainSync = 0;
-const CHAIN_SYNC_INTERVAL_MS = 30_000;
 
 function loadLocal(): void {
   if (loaded) return;
@@ -79,61 +77,6 @@ function saveLocal(): void {
  * providing a working system even without on-chain agents.
  */
 
-/**
- * Sync on-chain state into the local agent store.
- * Discovers real agents registered on Casper Testnet by parsing
- * AgentRegistry events via CSPR.cloud. External agents are merged
- * into the local cache (preserving coordinator fallback agents).
- */
-export async function syncWithChain(): Promise<void> {
-  const now = Date.now();
-  if (now - lastChainSync < CHAIN_SYNC_INTERVAL_MS) return;
-  lastChainSync = now;
-
-  try {
-    const { discoverOnChainAgents } = await import("./reputation");
-    const discovered = await discoverOnChainAgents();
-
-    let newCount = 0;
-    for (const agent of discovered) {
-      const existing = agents.get(agent.accountHash);
-      if (!existing) {
-        // New on-chain agent not in local cache
-        agents.set(agent.accountHash, {
-          accountHash:      agent.accountHash,
-          endpoint:         agent.endpoint,
-          capability:       agent.capability,
-          pricePerTask:     agent.pricePerTask,
-          active:           agent.active,
-          reputationScore:  agent.reputationScore,
-          tasksCompleted:   0,
-          tasksFailed:      0,
-          lastUpdated:      new Date().toISOString(),
-          source:           "on-chain",
-        });
-        newCount++;
-      } else if (existing.source === "local" && !existing.demo) {
-        // Upgrade local (user-registered) agent with on-chain data
-        existing.reputationScore = agent.reputationScore;
-        existing.active = agent.active;
-        existing.source = "on-chain";
-      } else if (existing.source === "on-chain") {
-        // Refresh on-chain agent with latest data
-        existing.reputationScore = agent.reputationScore;
-        existing.active = agent.active;
-        existing.lastUpdated = new Date().toISOString();
-      }
-    }
-
-    if (newCount > 0 || discovered.length > 0) {
-      saveLocal();
-    }
-    console.log(`[AgentStore] Chain sync: ${agents.size} agents total, ${discovered.length} on-chain discovered, ${newCount} new`);
-  } catch (err) {
-    console.warn(`[AgentStore] Chain sync failed (non-fatal): ${err}`);
-  }
-}
-
 // ── Public API ──────────────────────────────────────────────────────────────
 
 export function addAgent(
@@ -141,6 +84,7 @@ export function addAgent(
   endpoint: string,
   capability: string,
   priceMotes: string,
+  source: "on-chain" | "local" = "local",
 ): void {
   loadLocal();
   if (!ACCOUNT_HASH_RE.test(accountHash)) {
@@ -157,7 +101,7 @@ export function addAgent(
     tasksCompleted: 0,
     tasksFailed: 0,
     lastUpdated: new Date().toISOString(),
-    source: "local",
+    source,
   });
   saveLocal();
 }
@@ -254,67 +198,16 @@ export function rateAgent(
 }
 
 /**
- * Seed agents using the coordinator's own account hash.
- * Called on startup when no agents exist (e.g. fresh Render deploy).
- * Attempts on-chain registration via AgentRegistry for each capability.
+ * Seed empty state on startup.
+ * Real agents register themselves via POST /agent/register/prepare + /submit.
+ * No synthetic/demo agents are created — the system starts empty.
  */
 export async function seedCoordinatorAgents(): Promise<void> {
   loadLocal();
-  if (agents.size > 0) return;
-
-  try {
-    const sdk = await import("casper-js-sdk");
-    const { KeyAlgorithm, PrivateKey } = sdk.default ?? sdk;
-    const crypto = await import("crypto");
-    const fsPromises = await import("fs/promises");
-
-    const keyPath   = process.env.COORDINATOR_SECRET_KEY_PATH || "./keys/secret_key.pem";
-    const keyAlgo   = process.env.COORDINATOR_KEY_ALGO || "ed25519";
-    const pem       = await fsPromises.readFile(keyPath, "utf-8");
-    const algo      = keyAlgo === "secp256k1" ? KeyAlgorithm.SECP256K1 : KeyAlgorithm.ED25519;
-    const key       = PrivateKey.fromPem(pem, algo);
-    const acctHash  = "00" + key.publicKey.accountHash().toHex();
-
-    if (!ACCOUNT_HASH_RE.test(acctHash)) {
-      console.warn(`[AgentStore] Derived coordinator account hash is invalid: ${acctHash}`);
-      return;
-    }
-
-    const priceMotes = "500000000";
-    const caps = ["research", "risk", "coding", "design", "audit", "report"];
-
-    // Each capability gets a unique synthetic account hash derived from the
-    // coordinator's real hash. This avoids Map key collisions while keeping
-    // each demo agent identifiable.
-    for (const cap of caps) {
-      const capHash = crypto.createHash("sha256").update(`${acctHash}_${cap}`).digest("hex").slice(0, 64);
-      const syntheticHash = "00" + capHash;
-
-      agents.set(syntheticHash, {
-        accountHash:      syntheticHash,
-        endpoint:         `coordinator://${cap}`,
-        capability:       cap,
-        pricePerTask:     priceMotes,
-        active:           true,
-        reputationScore:  5000,
-        tasksCompleted:   0,
-        tasksFailed:      0,
-        lastUpdated:      new Date().toISOString(),
-        source:           "local",
-        demo:             true,
-      });
-    }
-    saveLocal();
-    console.log(`[AgentStore] Seeded ${caps.length} coordinator agents (demo=true) with unique synthetic hashes`);
-
-    // On-chain registration is skipped for demo agents — they use synthetic
-    // hashes that don't correspond to real Casper accounts. Real agents
-    // self-register via POST /agent/register/prepare + /submit.
-  } catch (err) {
-    console.warn(`[AgentStore] Could not seed coordinator agents: ${err}`);
+  if (agents.size === 0) {
+    console.log(`[AgentStore] No agents registered. Waiting for real agents to self-register on-chain.`);
   }
 }
 
-// Auto-sync with chain on module load (non-blocking)
+// Auto-load local store on module import
 loadLocal();
-syncWithChain().catch(() => {});

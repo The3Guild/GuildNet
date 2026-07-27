@@ -321,7 +321,7 @@ app.post("/agent/register/submit", limiter, async (req: Request, res: Response, 
             ? String(Math.round(parseFloat(price) * 1e9))
             : "500000000";
           const { addAgent } = await import("./agentStore");
-          addAgent(accountHash, endpoint, capability, priceMotes);
+          addAgent(accountHash, endpoint, capability, priceMotes, "on-chain");
         }
       } catch (e) {
         console.warn(`[Server] Failed to store agent locally: ${e}`);
@@ -361,6 +361,43 @@ app.post("/agent/:capability/run", limiter, async (req: Request, res: Response, 
       capability:     result.capability,
       agentAddress:   result.agentAddress,
       output:         result.output,
+    });
+  } catch (err) { next(err); }
+});
+
+/**
+ * POST /api/agents/run
+ * Real A2A agent execution endpoint. The coordinator calls this to send work
+ * to an agent. The agent processes the work and returns a result.
+ *
+ * This is the HTTP interface that real external agents implement.
+ * Body: { taskId, capability, description, context?, coordinatorUrl? }
+ * Returns: { output, capability, agentAddress }
+ */
+app.post("/api/agents/run", limiter, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { taskId, capability, description, context = "" } = req.body as {
+      taskId: string;
+      capability: string;
+      description: string;
+      context?: string;
+      coordinatorUrl?: string;
+    };
+
+    if (!["research","risk","report","coding","design","audit"].includes(capability)) {
+      res.status(400).json({ error: `Unknown capability: ${capability}` }); return;
+    }
+    if (!description?.trim()) {
+      res.status(400).json({ error: "description is required" }); return;
+    }
+
+    const { runAgent: execAgent } = await import("./agentRunner");
+    const result = await execAgent(capability as Capability, BigInt(taskId ?? "0"), description, context);
+
+    res.json({
+      output:     result.output,
+      capability: result.capability,
+      agentAddress: result.agentAddress,
     });
   } catch (err) { next(err); }
 });

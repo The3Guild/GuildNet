@@ -23,7 +23,6 @@ import { addSettlement } from "./settlements";
 import {
   getAllAgents,
   getAgentsByCapability,
-  syncWithChain,
   type AgentRecord,
 } from "./agentStore";
 
@@ -106,20 +105,10 @@ export interface TaskResult {
 // ── Agent discovery (on-chain primary, local cache fallback) ─────────────────
 
 export async function findAllAgents(): Promise<AgentRecord[]> {
-  try {
-    await syncWithChain();
-  } catch (err) {
-    console.warn(`[Coordinator] Chain sync failed: ${err}`);
-  }
   return getAllAgents();
 }
 
 async function findAgents(capability: string): Promise<AgentRecord[]> {
-  try {
-    await syncWithChain();
-  } catch (err) {
-    console.warn(`[Coordinator] Chain sync failed for "${capability}": ${err}`);
-  }
   const all = getAgentsByCapability(capability);
 
   // Prefer external (on-chain registered) agents over coordinator fallback agents.
@@ -520,13 +509,61 @@ async function waitForDeployLegacy(
   throw new Error(`Deploy ${hash} not confirmed after ${MAX_ATTEMPTS * POLL_INTERVAL_MS / 1000}s (${MAX_ATTEMPTS} attempts)`);
 }
 
-// ── Venice AI inference ───────────────────────────────────────────────────────
+// ── Agent execution: real A2A HTTP call → Venice fallback ─────────────────────
 
+/**
+ * Execute work via a real agent endpoint (A2A).
+ * If the agent has a registered HTTP endpoint, we POST to it — that's real
+ * agent-to-agent communication. If the endpoint is unreachable or no agent
+ * is registered, we fall back to local Venice AI inference.
+ */
 async function callAgent(
   capability:      string,
   taskDescription: string,
   context = "",
-): Promise<string> {
+  agent?:          AgentRecord,
+): Promise<{ output: string; viaAgent: boolean }> {
+  const prompt = context
+    ? `Task: ${taskDescription}\n\nContext:\n${context}`
+    : taskDescription;
+
+  // ── Try real A2A HTTP call if agent has a valid endpoint ────────────────
+  if (agent?.endpoint && agent.endpoint.startsWith("http")) {
+    try {
+      console.log(`[Coordinator] A2A → ${capability} agent at ${agent.endpoint}`);
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 120_000);
+
+      const response = await fetch(agent.endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          taskId:       _currentTaskId,
+          capability,
+          description:  taskDescription,
+          context,
+        }),
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+
+      if (!response.ok) {
+        throw new Error(`Agent endpoint returned HTTP ${response.status}`);
+      }
+
+      const data = await response.json() as { output?: string; error?: string };
+      if (data.error) throw new Error(data.error);
+      if (!data.output?.trim()) throw new Error("Agent returned empty output");
+
+      console.log(`[Coordinator] ✓ A2A ${capability} agent responded (${data.output.length} chars)`);
+      return { output: data.output, viaAgent: true };
+    } catch (err) {
+      const msg = (err as Error).message ?? String(err);
+      console.warn(`[Coordinator] A2A ${capability} agent failed (${msg.slice(0, 100)}), falling back to Venice AI`);
+    }
+  }
+
+  // ── Fallback: local Venice AI inference ─────────────────────────────────
   const SYSTEM_MAP: Record<string, string> = {
     research: "You are a market research specialist. Produce concise, factual research: key players, market size, growth trends.",
     risk:     "You are a risk analysis specialist. Identify key risks and rate each High/Medium/Low. Be concise.",
@@ -535,10 +572,9 @@ async function callAgent(
     audit:    "You are a quality auditor. Review outputs for accuracy. Give a verdict (PASS/FAIL/NEEDS_REVISION).",
     report:   "You are a deliverable compiler. Match output format to what was requested.",
   };
-  const prompt = context
-    ? `Task: ${taskDescription}\n\nContext:\n${context}`
-    : taskDescription;
-  return veniceChat(SYSTEM_MAP[capability] ?? SYSTEM_MAP.research, prompt, "llama-3.3-70b");
+  console.log(`[Coordinator] Venice fallback for ${capability}`);
+  const output = await veniceChat(SYSTEM_MAP[capability] ?? SYSTEM_MAP.research, prompt, "llama-3.3-70b");
+  return { output, viaAgent: false };
 }
 
 // ── hireAndPay: on-chain hire + real x402 settlement ─────────────────────────
@@ -669,13 +705,6 @@ export async function runCoordinator(
     onChain:             false,
   };
 
-  // ── Sync agents from chain ──────────────────────────────────────────────
-  try {
-    await syncWithChain();
-  } catch {
-    // Non-fatal — local cache is available
-  }
-
   // ── Query real task ID from contract state (fallback to local counter) ─────
   let TASK_ID: bigint;
   try {
@@ -719,20 +748,21 @@ export async function runCoordinator(
     }
   }));
 
-  // ── Wave 1: independent capabilities (parallel Venice AI) ──────────────────
+  // ── Wave 1: independent capabilities (parallel A2A or Venice) ────────────
   const dependents = ["risk", "audit", "report"];
   const wave1 = capabilities.filter(c => !dependents.includes(c));
 
   if (wave1.length) {
-    console.log(`[Coordinator] Wave 1 (parallel Venice): ${wave1.join(", ")}`);
-    const outputs = await Promise.all(wave1.map(c => callAgent(c, taskDescription)));
+    console.log(`[Coordinator] Wave 1 (parallel A2A): ${wave1.join(", ")}`);
+    const results = await Promise.all(wave1.map(c => callAgent(c, taskDescription, "", agentMap[c])));
 
     for (let i = 0; i < wave1.length; i++) {
       const cap = wave1[i];
-      if (cap === "research")     result.research = outputs[i];
-      else if (cap === "coding")  result.coding   = outputs[i];
-      else if (cap === "design")  result.design   = outputs[i];
-      else result.research = (result.research ?? "") + `\n\n[${cap.toUpperCase()}]\n${outputs[i]}`;
+      const { output, viaAgent: _viaAgent } = results[i];
+      if (cap === "research")     result.research = output;
+      else if (cap === "coding")  result.coding   = output;
+      else if (cap === "design")  result.design   = output;
+      else result.research = (result.research ?? "") + `\n\n[${cap.toUpperCase()}]\n${output}`;
 
       if (agentMap[cap]) {
         try {
@@ -747,7 +777,7 @@ export async function runCoordinator(
   // ── Wave 2: risk (depends on research) ─────────────────────────────────────
   if (capabilities.includes("risk")) {
     console.log("[Coordinator] Wave 2: risk");
-    const output = await callAgent("risk", taskDescription, (result.research ?? "").slice(0, 1500));
+    const { output } = await callAgent("risk", taskDescription, (result.research ?? "").slice(0, 1500), agentMap.risk);
     result.riskAnalysis = output;
     if (agentMap.risk) {
       try { await hireAndPay(agentMap.risk, TASK_ID, result); } catch (err) {
@@ -761,7 +791,7 @@ export async function runCoordinator(
     console.log("[Coordinator] Wave 3: audit");
     const ctx = [result.research?.slice(0, 600), result.riskAnalysis?.slice(0, 600)]
       .filter(Boolean).join("\n\n");
-    const output = await callAgent("audit", taskDescription, ctx);
+    const { output } = await callAgent("audit", taskDescription, ctx, agentMap.audit);
     result.audit = output;
     if (agentMap.audit) {
       try { await hireAndPay(agentMap.audit, TASK_ID, result); } catch (err) {
@@ -775,7 +805,7 @@ export async function runCoordinator(
     console.log("[Coordinator] Wave 4: report");
     const ctx = [result.research?.slice(0, 1000), result.riskAnalysis?.slice(0, 800), result.audit?.slice(0, 500)]
       .filter(Boolean).join("\n\n");
-    const output = await callAgent("report", taskDescription, ctx);
+    const { output } = await callAgent("report", taskDescription, ctx, agentMap.report);
     result.report = output;
     if (agentMap.report) {
       try { await hireAndPay(agentMap.report, TASK_ID, result); } catch (err) {
