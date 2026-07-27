@@ -40,17 +40,26 @@ app.get("/agents", async (_req: Request, res: Response, next: NextFunction) => {
       try {
         const rep = await getReputation(agent.accountHash, agent);
         if (!rep) {
-          // Agent has no reputation data yet (new agent)
-          return { ...agent, reputationScore: null, tasksFailed: null, lastUpdated: null };
+          return {
+            ...agent,
+            reputationScore: null, tasksFailed: null, lastUpdated: null,
+            userRating: agent.userRating ?? null, userRatingCount: agent.userRatingCount ?? 0,
+          };
         }
         return {
           ...agent,
           reputationScore: rep.score,
           tasksFailed:     rep.tasksFailed,
           lastUpdated:     rep.lastUpdated,
+          userRating:      agent.userRating ?? null,
+          userRatingCount: agent.userRatingCount ?? 0,
         };
       } catch {
-        return { ...agent, reputationScore: null, tasksFailed: null, lastUpdated: null };
+        return {
+          ...agent,
+          reputationScore: null, tasksFailed: null, lastUpdated: null,
+          userRating: agent.userRating ?? null, userRatingCount: agent.userRatingCount ?? 0,
+        };
       }
     }));
 
@@ -74,6 +83,36 @@ app.get("/agents/:accountHash/reputation", async (req: Request, res: Response, n
       getReputationEvents(accountHash),
     ]);
     res.json({ reputation: rep, events });
+  } catch (err) { next(err); }
+});
+
+/**
+ * POST /agents/:accountHash/rate
+ * Submit a user rating (1–5 stars) for an agent.
+ * Maintains a running average stored locally.
+ */
+app.post("/agents/:accountHash/rate", limiter, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { accountHash } = req.params;
+    const { rating } = req.body as { rating: number };
+
+    if (typeof rating !== "number" || rating < 1 || rating > 5) {
+      res.status(400).json({ error: "rating must be a number between 1 and 5" });
+      return;
+    }
+
+    const { rateAgent } = await import("./agentStore");
+    const result = rateAgent(accountHash, rating);
+    if (!result) {
+      res.status(404).json({ error: "Agent not found" });
+      return;
+    }
+
+    res.json({
+      accountHash,
+      userRating:      result.userRating,
+      userRatingCount: result.userRatingCount,
+    });
   } catch (err) { next(err); }
 });
 

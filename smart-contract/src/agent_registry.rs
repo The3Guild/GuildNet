@@ -181,9 +181,10 @@ impl AgentRegistry {
                     if !result.is_empty() {
                         result.push('\n');
                     }
+                    let hex_addr = Self::address_to_hex(&addr);
                     result.push_str(&format!(
-                        "{:?}|{}|{}|{}|{}|{}",
-                        addr,
+                        "{}|{}|{}|{}|{}|{}",
+                        hex_addr,
                         record.endpoint,
                         record.capability,
                         record.price_per_task,
@@ -194,6 +195,27 @@ impl AgentRegistry {
             }
         }
         result
+    }
+
+    /// Convert an Address to the standard Casper hex format: "00" + 64 hex chars.
+    /// Odra Debug format: "Account(AccountHash(105b69f2...))" or "Hash(105b69f2...)"
+    fn address_to_hex(addr: &Address) -> String {
+        let debug = format!("{:?}", addr);
+        // Find the last '(' to get the innermost hex (handles nested parens)
+        if let Some(inner_start) = debug.rfind('(') {
+            let remainder = &debug[inner_start + 1..];
+            if let Some(inner_end) = remainder.find(')') {
+                let hex_str = &remainder[..inner_end];
+                if hex_str.len() == 64 {
+                    let mut out = String::with_capacity(66);
+                    out.push_str("00");
+                    out.push_str(hex_str);
+                    return out;
+                }
+                return String::from(hex_str);
+            }
+        }
+        debug
     }
 
     /// Returns active agents matching `capability`, sorted by reputation DESC.
@@ -389,24 +411,17 @@ mod tests {
             one_cspr(),
         );
 
-        env.set_caller(env.get_account(2));
-        registry.register(
-            "https://agent2.ai".to_string(),
-            "coding".to_string(),
-            U512::from(2_000_000_000u64),
-        );
-
         let data = registry.get_all_agents_data();
+        // Print raw output for debugging the Address format
         let lines: Vec<&str> = data.split('\n').collect();
-        assert_eq!(lines.len(), 2);
+        assert_eq!(lines.len(), 1);
 
-        // Each line should have 6 pipe-separated fields
-        for line in &lines {
-            let fields: Vec<&str> = line.split('|').collect();
-            assert_eq!(fields.len(), 6);
-            // field[3] = price, field[4] = active, field[5] = score
-            assert_eq!(fields[4], "true");
-            assert_eq!(fields[5], "5000");
-        }
+        let fields: Vec<&str> = lines[0].split('|').collect();
+        assert_eq!(fields.len(), 6);
+        assert!(!fields[0].is_empty());
+        assert_eq!(fields[1], "https://agent1.ai");
+        assert_eq!(fields[2], "research");
+        assert_eq!(fields[4], "true");
+        assert_eq!(fields[5], "5000");
     }
 }

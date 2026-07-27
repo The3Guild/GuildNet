@@ -13,6 +13,8 @@ export interface AgentRecord {
   lastUpdated:      string;   // ISO timestamp of last reputation change
   source:           "on-chain" | "local";
   demo?:            boolean;  // true for seeded coordinator agents
+  userRating?:      number;   // average user rating (1.0–5.0)
+  userRatingCount?: number;   // number of user ratings received
 }
 
 const STORE_PATH = path.resolve(__dirname, "..", "data", "agents.json");
@@ -180,16 +182,6 @@ export function updateAgentReputation(accountHash: string, score: number): void 
   }
 }
 
-export function incrementAgentTasks(accountHash: string): void {
-  loadLocal();
-  const agent = agents.get(accountHash);
-  if (agent) {
-    agent.tasksCompleted += 1;
-    agents.set(accountHash, agent);
-    saveLocal();
-  }
-}
-
 function computeScore(completed: number, failed: number): number {
   const total = completed + failed;
   if (total === 0) return 5000;
@@ -231,6 +223,32 @@ export function recordAgentFailure(accountHash: string): void {
 }
 
 /**
+ * Submit a user rating (1–5 stars) for an agent.
+ * Maintains a running average stored locally (not on-chain).
+ */
+export function rateAgent(
+  accountHash: string,
+  rating: number,
+): { userRating: number; userRatingCount: number } | null {
+  loadLocal();
+  const agent = agents.get(accountHash);
+  if (!agent) return null;
+
+  const clamped = Math.max(1, Math.min(5, Math.round(rating)));
+  const prevCount = agent.userRatingCount ?? 0;
+  const prevTotal = (agent.userRating ?? 0) * prevCount;
+  const newCount = prevCount + 1;
+  const newRating = Math.round(((prevTotal + clamped) / newCount) * 10) / 10;
+
+  agent.userRating = newRating;
+  agent.userRatingCount = newCount;
+  agents.set(accountHash, agent);
+  saveLocal();
+
+  return { userRating: newRating, userRatingCount: newCount };
+}
+
+/**
  * Seed agents using the coordinator's own account hash.
  * Called on startup when no agents exist (e.g. fresh Render deploy).
  * Attempts on-chain registration via AgentRegistry for each capability.
@@ -242,6 +260,7 @@ export async function seedCoordinatorAgents(): Promise<void> {
   try {
     const sdk = await import("casper-js-sdk");
     const { KeyAlgorithm, PrivateKey } = sdk.default ?? sdk;
+    const crypto = await import("crypto");
     const fsPromises = await import("fs/promises");
 
     const keyPath   = process.env.COORDINATOR_SECRET_KEY_PATH || "./keys/secret_key.pem";
@@ -259,10 +278,15 @@ export async function seedCoordinatorAgents(): Promise<void> {
     const priceMotes = "500000000";
     const caps = ["research", "risk", "coding", "design", "audit", "report"];
 
-    // Seed locally first (always succeeds)
+    // Each capability gets a unique synthetic account hash derived from the
+    // coordinator's real hash. This avoids Map key collisions while keeping
+    // each demo agent identifiable.
     for (const cap of caps) {
-      agents.set(acctHash, {
-        accountHash:      acctHash,
+      const capHash = crypto.createHash("sha256").update(`${acctHash}_${cap}`).digest("hex").slice(0, 64);
+      const syntheticHash = "00" + capHash;
+
+      agents.set(syntheticHash, {
+        accountHash:      syntheticHash,
         endpoint:         `coordinator://${cap}`,
         capability:       cap,
         pricePerTask:     priceMotes,
@@ -276,44 +300,11 @@ export async function seedCoordinatorAgents(): Promise<void> {
       });
     }
     saveLocal();
-    console.log(`[AgentStore] Seeded ${caps.length} coordinator agents (demo=true) with hash ${acctHash.slice(0, 14)}…`);
+    console.log(`[AgentStore] Seeded ${caps.length} coordinator agents (demo=true) with unique synthetic hashes`);
 
-    // Attempt on-chain registration for each capability (best-effort)
-    try {
-      const { callContractEntry } = await import("./coordinator");
-      const { config } = await import("./config");
-      let onChainCount = 0;
-      for (const cap of caps) {
-        try {
-          await callContractEntry(
-            "register",
-            {
-              endpoint:       `coordinator://${cap}`,
-              capability:     cap,
-              price_per_task: { type: "U512", value: priceMotes },
-            },
-            undefined,
-            config.contracts.agentRegistry,
-          );
-          onChainCount++;
-          console.log(`[AgentStore] ✓ Registered ${cap} agent on-chain`);
-        } catch (err) {
-          console.warn(`[AgentStore] On-chain registration for ${cap} failed (non-fatal): ${(err as Error).message?.slice(0, 120)}`);
-        }
-      }
-      if (onChainCount > 0) {
-        // Update source to on-chain for successfully registered agents
-        const agent = agents.get(acctHash);
-        if (agent) {
-          agent.source = "on-chain";
-          agent.demo = false;
-        }
-        saveLocal();
-        console.log(`[AgentStore] ${onChainCount}/${caps.length} agents registered on-chain`);
-      }
-    } catch (err) {
-      console.warn(`[AgentStore] On-chain registration batch failed (non-fatal): ${err}`);
-    }
+    // On-chain registration is skipped for demo agents — they use synthetic
+    // hashes that don't correspond to real Casper accounts. Real agents
+    // self-register via POST /agent/register/prepare + /submit.
   } catch (err) {
     console.warn(`[AgentStore] Could not seed coordinator agents: ${err}`);
   }

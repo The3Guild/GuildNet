@@ -40,7 +40,8 @@ export function useChainAgents() {
             ? `Demo ${a.capability} agent on GuildNet. Coordinator-seeded for testing.`
             : `Autonomous ${a.capability} agent on GuildNet. ${a.tasksCompleted > 0 ? `${a.tasksCompleted} tasks completed.` : "Ready for hire."}${a.reputationScore != null ? ` Reputation: ${a.reputationScore}/10000.` : ""}`,
           price: Number(a.pricePerTask) / 1e9,
-          rating: a.reputationScore != null ? Math.min(5.0, a.reputationScore / 2000) : null,
+          rating: a.userRating ?? null,
+          ratingCount: a.userRatingCount ?? 0,
           tasks:       a.tasksCompleted ?? 0,
           tasksFailed: a.tasksFailed ?? 0,
           demo:        a.demo ?? false,

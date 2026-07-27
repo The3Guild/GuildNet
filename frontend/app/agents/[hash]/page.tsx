@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useParams } from "next/navigation";
 import { useAgentReputation } from "@/hooks/use-agent-reputation";
 import { useWallet } from "@/hooks/use-wallet";
@@ -7,7 +8,7 @@ import { CASPER_EXPLORER, BACKEND_URL } from "@/lib/constants";
 import { shortenAddress } from "@/lib/utils";
 import {
   Shield, ExternalLink, CheckCircle, XCircle, Clock, ArrowLeft,
-  TrendingUp, Activity, Award, Zap,
+  TrendingUp, Activity, Award, Zap, Star, Check,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -25,9 +26,41 @@ export default function AgentTrustPage() {
   const { reputation, events, loading, error } = useAgentReputation(hash);
   const { connected, address } = useWallet();
 
+  const [hoveredStar, setHoveredStar] = useState(0);
+  const [selectedRating, setSelectedRating] = useState(0);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+  const [ratingError, setRatingError] = useState<string | null>(null);
+
   const score = reputation?.score ?? 5000;
   const scorePercent = Math.round((score / 10000) * 100);
   const rep = getRepLevel(score);
+
+  const userRating = (reputation as Record<string, unknown>)?.userRating as number | null ?? null;
+  const userRatingCount = (reputation as Record<string, unknown>)?.userRatingCount as number ?? 0;
+
+  async function submitRating(starValue: number) {
+    if (!hash || submitting || submitted) return;
+    setSubmitting(true);
+    setRatingError(null);
+    try {
+      const res = await fetch(`${BACKEND_URL}/agents/${hash}/rate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rating: starValue }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || `HTTP ${res.status}`);
+      }
+      setSelectedRating(starValue);
+      setSubmitted(true);
+    } catch (e) {
+      setRatingError((e as Error).message);
+    } finally {
+      setSubmitting(false);
+    }
+  }
 
   if (loading) {
     return (
@@ -48,7 +81,7 @@ export default function AgentTrustPage() {
         </Link>
         <div className="min-w-0">
           <h1 className="text-lg font-bold text-white truncate">Agent Trust Profile</h1>
-          <code className="text-xs text-slate-500 block truncate">{hash ? shortenAddress(hash) : "—"}</code>
+          <code className="text-xs text-slate-500 block truncate">{hash ? shortenAddress(hash) : "\u2014"}</code>
         </div>
         <div className="ml-auto flex items-center gap-2 flex-shrink-0">
           <a href={`${CASPER_EXPLORER}/account/${hash}`} target="_blank" rel="noreferrer"
@@ -67,7 +100,6 @@ export default function AgentTrustPage() {
       {/* Score hero */}
       <div className="glass-card p-5 sm:p-6">
         <div className="flex flex-col sm:flex-row sm:items-center gap-4 sm:gap-6">
-          {/* Score ring */}
           <div className="flex-shrink-0">
             <div className="relative w-24 h-24 sm:w-28 sm:h-28 mx-auto sm:mx-0">
               <svg viewBox="0 0 100 100" className="w-full h-full -rotate-90">
@@ -84,7 +116,6 @@ export default function AgentTrustPage() {
             </div>
           </div>
 
-          {/* Score details */}
           <div className="flex-1 text-center sm:text-left">
             <div className="flex items-center gap-2 justify-center sm:justify-start mb-2">
               <Shield className={`w-5 h-5 ${rep.color}`} />
@@ -94,7 +125,67 @@ export default function AgentTrustPage() {
             <div className="rep-bar-track h-2 max-w-xs mx-auto sm:mx-0">
               <div className={`rep-bar-fill ${rep.barClass}`} style={{ width: `${scorePercent}%` }} />
             </div>
-            <p className="text-[11px] text-slate-600 mt-1.5">Formula: completions / (completions + failures×2) × 10000</p>
+            <p className="text-[11px] text-slate-600 mt-1.5">Formula: completions / (completions + failures\u00d72) \u00d7 10000</p>
+          </div>
+        </div>
+      </div>
+
+      {/* User Rating Card */}
+      <div className="glass-card p-5 sm:p-6">
+        <h2 className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
+          <Star className="w-4 h-4 text-amber-400" />
+          User Rating
+        </h2>
+
+        <div className="flex flex-col sm:flex-row sm:items-center gap-4 sm:gap-8">
+          <div className="flex items-center gap-3">
+            {userRating != null ? (
+              <>
+                <div className="flex items-center gap-0.5">
+                  {[1,2,3,4,5].map(s => (
+                    <Star key={s} className={`w-5 h-5 ${s <= Math.round(userRating) ? "text-amber-400 fill-amber-400" : "text-slate-700"}`} />
+                  ))}
+                </div>
+                <span className="text-lg font-bold text-amber-300">{userRating}</span>
+                <span className="text-xs text-slate-500">({userRatingCount} {userRatingCount === 1 ? "rating" : "ratings"})</span>
+              </>
+            ) : (
+              <span className="text-sm text-slate-500">No user ratings yet</span>
+            )}
+          </div>
+
+          <div className="flex-1 sm:text-right">
+            {submitted ? (
+              <div className="flex items-center gap-2 justify-center sm:justify-end text-green-400">
+                <Check className="w-4 h-4" />
+                <span className="text-sm font-medium">Thanks for rating!</span>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <p className="text-xs text-slate-500">Rate this agent</p>
+                <div className="flex items-center gap-1 justify-center sm:justify-end">
+                  {[1,2,3,4,5].map(star => (
+                    <button
+                      key={star}
+                      disabled={submitting}
+                      onMouseEnter={() => setHoveredStar(star)}
+                      onMouseLeave={() => setHoveredStar(0)}
+                      onClick={() => submitRating(star)}
+                      className="p-0.5 transition-transform hover:scale-110 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <Star className={`w-7 h-7 transition-colors ${
+                        star <= (hoveredStar || selectedRating)
+                          ? "text-amber-400 fill-amber-400"
+                          : "text-slate-700 hover:text-slate-500"
+                      }`} />
+                    </button>
+                  ))}
+                </div>
+                {ratingError && (
+                  <p className="text-[11px] text-red-400">{ratingError}</p>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -136,7 +227,7 @@ export default function AgentTrustPage() {
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm text-white truncate">
-                    Task #{ev.taskId} — <span className={ev.success ? "text-green-400" : "text-red-400"}>{ev.success ? "completed" : "failed"}</span>
+                    Task #{ev.taskId} {"\u2014"} <span className={ev.success ? "text-green-400" : "text-red-400"}>{ev.success ? "completed" : "failed"}</span>
                   </p>
                   <p className="text-[11px] text-slate-500">
                     <Clock className="w-2.5 h-2.5 inline mr-1" />

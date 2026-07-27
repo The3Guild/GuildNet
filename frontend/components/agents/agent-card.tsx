@@ -10,6 +10,7 @@ export interface Agent {
   description: string;
   price: number;
   rating: number | null;
+  ratingCount?: number;
   tasks: number;
   tasksFailed?: number;
   reputationScore?: number | null;
@@ -40,7 +41,7 @@ function getRepLevel(score: number) {
   return { label: "Poor", cls: "rep-bad", color: "text-red-400", badge: "bg-red-500/10 border-red-500/20 text-red-400" };
 }
 
-export function AgentCard({ name, type, description, price, rating, tasks, reputationScore, status, skills, accountHash, source, demo }: Agent) {
+export function AgentCard({ name, type, description, price, rating, ratingCount, tasks, reputationScore, status, skills, accountHash, source, demo }: Agent) {
   const gradient = GRADIENTS[type] ?? "from-cyan-500 to-violet-400";
   const emoji    = EMOJIS[type] ?? "🤖";
   const isOnline = status === "online";
@@ -80,6 +81,9 @@ export function AgentCard({ name, type, description, price, rating, tasks, reput
           <div className="flex items-center gap-1 px-2 py-0.5 bg-amber-500/8 border border-amber-500/15 rounded-lg flex-shrink-0">
             <Star className="w-3 h-3 text-amber-400 fill-amber-400" />
             <span className="text-[11px] font-medium text-amber-300">{rating.toFixed(1)}</span>
+            {ratingCount != null && ratingCount > 0 && (
+              <span className="text-[10px] text-amber-500/60">({ratingCount})</span>
+            )}
           </div>
         )}
       </div>
