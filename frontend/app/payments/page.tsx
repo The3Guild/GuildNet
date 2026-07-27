@@ -89,12 +89,12 @@ export default function PaymentsPage() {
         {/* Settlement list */}
         <div className="lg:col-span-2 order-1 lg:order-2">
           {loading ? (
-            <div className="glass-card p-10 text-center h-full flex flex-col items-center justify-center">
+            <div className="glass-card p-8 sm:p-10 text-center h-full flex flex-col items-center justify-center">
               <Loader2 className="w-6 h-6 text-cyan-400 animate-spin mx-auto mb-2" />
               <p className="text-slate-500 text-xs">Loading settlement history…</p>
             </div>
           ) : error ? (
-            <div className="glass-card p-10 text-center h-full flex flex-col items-center justify-center">
+            <div className="glass-card p-8 sm:p-10 text-center h-full flex flex-col items-center justify-center">
               <p className="text-amber-400 text-sm mb-1">Could not load settlements</p>
               <p className="text-slate-600 text-xs">{error}</p>
             </div>
@@ -105,8 +105,8 @@ export default function PaymentsPage() {
                 const isPayer = address && s.from.toLowerCase() === address.toLowerCase();
                 const amountCSPR = (parseFloat(s.amount || "0") / 1e9).toFixed(2);
                 return (
-                  <div key={s.hash} className="glass-card px-3 sm:px-4 py-3 flex items-center gap-2 sm:gap-3 hover:bg-white/[0.03] transition-colors">
-                    <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${isPayer ? "bg-red-500/8" : "bg-green-500/8"}`}>
+                  <div key={s.hash} className="glass-card px-2.5 sm:px-4 py-2.5 sm:py-3 flex items-center gap-2 sm:gap-3 hover:bg-white/[0.03] transition-colors">
+                    <div className={`w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center flex-shrink-0 ${isPayer ? "bg-red-500/8" : "bg-green-500/8"}`}>
                       {isPayer
                         ? <ArrowUpRight className="w-4 h-4 text-red-400" />
                         : <ArrowDownLeft className="w-4 h-4 text-green-400" />}
@@ -122,7 +122,7 @@ export default function PaymentsPage() {
                         )}
                       </div>
                     </div>
-                    <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
+                    <div className="flex items-center gap-1 sm:gap-1.5 sm:gap-2 flex-shrink-0">
                       <span className={`text-xs sm:text-sm font-medium tabular-nums ${isPayer ? "text-red-400" : "text-green-400"}`}>
                         {isPayer ? "−" : "+"}{amountCSPR}
                       </span>
@@ -136,7 +136,7 @@ export default function PaymentsPage() {
               })}
             </div>
           ) : (
-            <div className="glass-card p-10 text-center h-full flex flex-col items-center justify-center">
+            <div className="glass-card p-8 sm:p-10 text-center h-full flex flex-col items-center justify-center">
               <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-cyan-500/10 to-violet-500/10 flex items-center justify-center mx-auto mb-3">
                 <Receipt className="w-7 h-7 text-slate-600" />
               </div>

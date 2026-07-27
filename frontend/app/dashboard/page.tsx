@@ -77,9 +77,9 @@ export default function DashboardPage() {
       </div>
 
       {/* Stats grid */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 stagger">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 stagger">
         {STATS.map(({ label, value, sub, icon: Icon, color, bg }) => (
-          <div key={label} className="glass-card stat-card p-4 glow-hover">
+          <div key={label} className="glass-card stat-card p-3 sm:p-4 glow-hover">
             <div className={`w-8 h-8 rounded-xl bg-gradient-to-br ${bg} flex items-center justify-center mb-3`}>
               <Icon className={`w-4 h-4 ${color}`} />
             </div>

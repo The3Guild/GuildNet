@@ -223,7 +223,7 @@ export default function AgentTrustPage() {
         {events.length > 0 ? (
           <div className="space-y-2">
             {events.map((ev, i) => (
-              <div key={i} className="flex items-center gap-3 px-3 py-2.5 bg-white/[0.02] rounded-xl border border-white/[0.04] hover:bg-white/[0.04] transition-colors">
+              <div key={i} className="flex items-center gap-2.5 sm:gap-3 px-3 py-2.5 bg-white/[0.02] rounded-xl border border-white/[0.04] hover:bg-white/[0.04] transition-colors">
                 <div className={`w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 ${
                   ev.success ? "bg-emerald-500/10" : "bg-red-500/10"
                 }`}>
@@ -235,9 +235,9 @@ export default function AgentTrustPage() {
                   <p className="text-sm text-white truncate">
                     Task #{ev.taskId} — <span className={ev.success ? "text-emerald-400" : "text-red-400"}>{ev.success ? "completed" : "failed"}</span>
                   </p>
-                  <p className="text-[11px] text-slate-500">
+                  <p className="text-[10px] sm:text-[11px] text-slate-500 truncate">
                     <Clock className="w-2.5 h-2.5 inline mr-1" />
-                    {new Date(typeof ev.timestamp === "string" ? ev.timestamp : ev.timestamp * 1000).toLocaleString()}
+                    {new Date(typeof ev.timestamp === "string" ? ev.timestamp : ev.timestamp * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
                   </p>
                 </div>
                 {ev.deployHash && (

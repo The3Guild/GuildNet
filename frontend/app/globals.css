@@ -441,9 +441,12 @@ body {
   background: var(--bg-card);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-lg);
-  padding: 1.5rem;
+  padding: 1rem;
   transition: all 0.4s cubic-bezier(0.16,1,0.3,1);
   overflow: hidden;
+}
+@media (min-width: 640px) {
+  .feature-card { padding: 1.5rem; }
 }
 .feature-card::before {
   content: '';
@@ -481,10 +484,25 @@ body {
 }
 
 /* ── Responsive utilities ──────────────────────────────────────────────── */
+@supports (padding: env(safe-area-inset-bottom)) {
+  .safe-area-inset { padding-bottom: env(safe-area-inset-bottom); }
+}
+@supports (padding: env(safe-area-inset-top)) {
+  .safe-area-inset { padding-top: env(safe-area-inset-top); }
+}
+@supports (padding: env(safe-area-inset-left)) {
+  .safe-area-inset { padding-left: env(safe-area-inset-left); }
+}
+@supports (padding: env(safe-area-inset-right)) {
+  .safe-area-inset { padding-right: env(safe-area-inset-right); }
+}
 @media (max-width: 640px) {
   .timeline-connector::after { display: none; }
   .page-header h1 { font-size: 1.25rem; }
   .page-header p { font-size: 0.75rem; }
+}
+@media (max-width: 380px) {
+  .page-container { padding-left: 0.75rem; padding-right: 0.75rem; }
 }
 
 /* ── Landing page animated grid dots ───────────────────────────────────── */

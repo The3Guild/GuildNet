@@ -31,14 +31,14 @@ export default function TasksPage() {
   }, []);
 
   return (
-    <div className="space-y-6 max-w-5xl mx-auto w-full">
+    <div className="space-y-5 sm:space-y-6 max-w-5xl mx-auto w-full">
       <div className="page-header">
-        <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3">
+        <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-2 sm:gap-3">
           <div>
             <h1>Tasks</h1>
             <p>Describe anything. AI agents self-select, execute, and settle payments on-chain.</p>
           </div>
-          <div className="flex items-center gap-4 text-xs text-slate-500">
+          <div className="flex items-center gap-3 sm:gap-4 text-[11px] sm:text-xs text-slate-500">
             <div className="flex items-center gap-1.5">
               <Bot className="w-3.5 h-3.5 text-cyan-400" /> {agentCount ?? "—"} agents
             </div>

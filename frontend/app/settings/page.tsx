@@ -59,7 +59,7 @@ export default function SettingsPage() {
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-white">{label}</p>
                   <p className="text-xs text-slate-500">{desc}</p>
-                  <code className="text-[10px] text-slate-600 mt-0.5 block truncate">{addr}</code>
+                  <code className="text-[10px] text-slate-600 mt-0.5 block truncate max-w-[200px] sm:max-w-none">{addr}</code>
                 </div>
                 <a href={`${CASPER_EXPLORER}/contract/${addr}`} target="_blank" rel="noreferrer"
                   className="text-slate-500 hover:text-cyan-400 transition-colors flex-shrink-0 p-1.5 rounded-lg hover:bg-white/5">

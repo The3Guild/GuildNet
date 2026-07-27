@@ -113,19 +113,19 @@ ${form.team ? `## Team Members\n${form.team}` : ""}
 
       {/* Progress steps */}
       <div className="glass-card p-4">
-        <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
-          <span className="flex items-center gap-1.5">
-            <span className="w-6 h-6 rounded-full bg-cyan-500/20 border border-cyan-500/30 flex items-center justify-center text-cyan-400 font-semibold">1</span>
+        <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 text-[11px] sm:text-xs text-slate-500">
+          <span className="flex items-center gap-1 sm:gap-1.5">
+            <span className="w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-cyan-500/20 border border-cyan-500/30 flex items-center justify-center text-cyan-400 font-semibold text-[10px] sm:text-xs">1</span>
             Fill details
           </span>
           <span className="text-slate-700 hidden sm:inline">——</span>
-          <span className="flex items-center gap-1.5">
-            <span className="w-6 h-6 rounded-full bg-white/[0.05] border border-white/[0.1] flex items-center justify-center text-slate-500 font-semibold">2</span>
+          <span className="flex items-center gap-1 sm:gap-1.5">
+            <span className="w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-white/[0.05] border border-white/[0.1] flex items-center justify-center text-slate-500 font-semibold text-[10px] sm:text-xs">2</span>
             Review
           </span>
           <span className="text-slate-700 hidden sm:inline">——</span>
-          <span className="flex items-center gap-1.5">
-            <span className="w-6 h-6 rounded-full bg-white/[0.05] border border-white/[0.1] flex items-center justify-center text-slate-500 font-semibold">3</span>
+          <span className="flex items-center gap-1 sm:gap-1.5">
+            <span className="w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-white/[0.05] border border-white/[0.1] flex items-center justify-center text-slate-500 font-semibold text-[10px] sm:text-xs">3</span>
             Submit
           </span>
         </div>
@@ -133,7 +133,7 @@ ${form.team ? `## Team Members\n${form.team}` : ""}
 
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
         {/* Form */}
-        <div className="lg:col-span-3 glass-card p-6 space-y-5">
+        <div className="lg:col-span-3 glass-card p-4 sm:p-6 space-y-4 sm:space-y-5">
 
           {/* Project Name */}
           <div>
@@ -230,7 +230,7 @@ ${form.team ? `## Team Members\n${form.team}` : ""}
             <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-1.5">
               <FileText className="w-3 h-3" /> Submission Preview
             </h2>
-            <pre className="text-xs text-green-300/80 bg-black/40 rounded-xl p-4 overflow-x-auto whitespace-pre-wrap max-h-96 overflow-y-auto">
+            <pre className="text-[10px] sm:text-xs text-green-300/80 bg-black/40 rounded-xl p-3 sm:p-4 overflow-x-auto whitespace-pre-wrap max-h-72 sm:max-h-96 overflow-y-auto">
               {buildSubmissionText().slice(0, 600)}{buildSubmissionText().length > 600 ? "..." : ""}
             </pre>
           </div>

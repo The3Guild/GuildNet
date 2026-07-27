@@ -54,7 +54,7 @@ export default function AgentsPage() {
           {Array.from({ length: 6 }).map((_, i) => <div key={i} className="skeleton h-48 rounded-xl" />)}
         </div>
       ) : filtered.length === 0 ? (
-        <div className="glass-card p-12 text-center space-y-4">
+        <div className="glass-card p-8 sm:p-12 text-center space-y-4">
           <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-cyan-500/15 to-violet-500/15 flex items-center justify-center mx-auto">
             <Search className="w-6 h-6 text-cyan-400/60" />
           </div>

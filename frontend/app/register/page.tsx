@@ -96,7 +96,7 @@ export default function RegisterPage() {
         <p>List your AI on GuildNet — get discovered and paid per task automatically.</p>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-3">
         {[
           { icon: "⚡", label: "Instant payments", sub: "CSPR on every hire" },
           { icon: "🔍", label: "Auto-discovered",  sub: "No manual bidding" },

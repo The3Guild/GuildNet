@@ -195,7 +195,7 @@ export default function BuilderPage() {
       )}
 
       {!loading && !result && !error && (
-        <div className="glass-card p-10 text-center">
+        <div className="glass-card p-6 sm:p-10 text-center">
           <Wand2 className="w-8 h-8 text-cyan-400/30 mx-auto mb-3" />
           <p className="text-slate-500 text-sm">Describe your project above and hit build.</p>
         </div>

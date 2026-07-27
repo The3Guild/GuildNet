@@ -160,12 +160,12 @@ export function TaskCreator({ onTaskComplete }: Props) {
       {/* Input */}
       <div className="relative">
         <textarea value={description} onChange={e => setDescription(e.target.value)}
-          onKeyDown={e => { if (e.key === "Enter" && e.metaKey) handleSubmit(); }}
+          onKeyDown={e => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) handleSubmit(); }}
           placeholder="Describe your task... agents auto-select (⌘+Enter to submit)"
-          className="w-full h-28 input-base p-4 pr-12 resize-none text-sm"
+          className="w-full h-24 sm:h-28 input-base p-3 sm:p-4 pr-10 sm:pr-12 resize-none text-sm"
           disabled={busy} />
         <button onClick={handleSubmit} disabled={!description.trim() || busy}
-          className="absolute bottom-3 right-3 btn-primary p-2 rounded-lg">
+          className="absolute bottom-2.5 right-2.5 sm:bottom-3 sm:right-3 btn-primary p-2 rounded-lg">
           {busy || suggesting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
         </button>
       </div>
@@ -196,12 +196,12 @@ export function TaskCreator({ onTaskComplete }: Props) {
           </div>
 
           {/* Step labels */}
-          <div className="flex flex-wrap gap-1.5">
+          <div className="flex flex-wrap gap-1 sm:gap-1.5">
             {pipelineKeys.map((key, i) => {
               const isActive = key === step;
               const isDone = i < stepIndex;
               return (
-                <div key={key} className={`pipeline-step flex items-center gap-1.5 px-2 sm:px-3 py-1.5 rounded-lg border text-[11px] sm:text-xs font-medium ${
+                <div key={key} className={`pipeline-step flex items-center gap-1 sm:gap-1.5 px-1.5 sm:px-3 py-1 sm:py-1.5 rounded-lg border text-[10px] sm:text-xs font-medium ${
                   isActive ? "pipeline-step-active text-cyan-400 border-cyan-500/30" :
                   isDone ? "pipeline-step-done text-emerald-400 border-emerald-500/20" :
                   "border-white/[0.08] bg-white/[0.02] text-slate-600"
@@ -263,7 +263,7 @@ export function TaskCreator({ onTaskComplete }: Props) {
                               className="text-[11px] text-cyan-400 hover:underline">Fullscreen</button>
                           </div>
                         </div>
-                        <iframe srcDoc={val} className="w-full border-0 h-[40vh] sm:h-[560px]"
+                        <iframe srcDoc={val} className="w-full border-0 h-[35vh] sm:h-[560px]"
                           sandbox="allow-scripts allow-same-origin allow-forms allow-popups" title={key} />
                       </div>
                     ) : (

@@ -166,25 +166,25 @@ export default function HomePage() {
       <Particles />
 
       {/* ── Hero ────────────────────────────────────────────────────── */}
-      <section className="relative min-h-[92vh] flex flex-col items-center justify-center text-center px-5 py-20 sm:py-24">
-        {/* Parallax gradient orbs */}
+      <section className="relative min-h-[92vh] flex flex-col items-center justify-center text-center px-4 py-16 sm:py-24">
+        {/* Parallax gradient orbs — hidden on mobile for performance */}
         <div
-          className="absolute w-[600px] h-[600px] rounded-full bg-cyan-500/[0.06] blur-[140px] pointer-events-none transition-transform duration-[2000ms] ease-out"
+          className="absolute w-[600px] h-[600px] rounded-full bg-cyan-500/[0.06] blur-[140px] pointer-events-none transition-transform duration-[2000ms] ease-out hidden sm:block"
           style={{ left: "20%", top: "15%", transform: `translate(${mousePos.x * 15}px, ${mousePos.y * 15}px)` }}
         />
         <div
-          className="absolute w-[500px] h-[500px] rounded-full bg-violet-500/[0.06] blur-[120px] pointer-events-none transition-transform duration-[2000ms] ease-out"
+          className="absolute w-[500px] h-[500px] rounded-full bg-violet-500/[0.06] blur-[120px] pointer-events-none transition-transform duration-[2000ms] ease-out hidden sm:block"
           style={{ right: "15%", top: "25%", transform: `translate(${mousePos.x * -12}px, ${mousePos.y * -12}px)` }}
         />
         <div
-          className="absolute w-[350px] h-[350px] rounded-full bg-pink-500/[0.05] blur-[100px] pointer-events-none transition-transform duration-[2000ms] ease-out"
+          className="absolute w-[350px] h-[350px] rounded-full bg-pink-500/[0.05] blur-[100px] pointer-events-none transition-transform duration-[2000ms] ease-out hidden sm:block"
           style={{ left: "40%", bottom: "20%", transform: `translate(${mousePos.x * 10}px, ${mousePos.y * -10}px)` }}
         />
 
         {/* Grid dots overlay */}
         <div className="grid-dots absolute inset-0" />
 
-        <div className="relative z-10 w-full max-w-3xl mx-auto flex flex-col items-center gap-6">
+        <div className="relative z-10 w-full max-w-3xl mx-auto flex flex-col items-center gap-4 sm:gap-6">
           {/* Logo with glow ring */}
           <div
             className="relative animate-[fade-in_0.8s_ease_both]"
@@ -192,7 +192,7 @@ export default function HomePage() {
           >
             <div className="absolute -inset-3 rounded-3xl bg-gradient-to-br from-cyan-500/20 via-violet-500/10 to-pink-500/20 blur-xl opacity-60" />
             <div className="absolute -inset-1 rounded-2xl bg-gradient-to-br from-cyan-400/30 to-violet-400/30 blur-md animate-[glow-ring_3s_ease-in-out_infinite]" />
-            <div className="relative w-20 h-20 sm:w-24 sm:h-24 rounded-2xl overflow-hidden ring-2 ring-white/10 shadow-2xl shadow-black/50 bg-[#0a0a14]">
+            <div className="relative w-16 h-16 sm:w-24 sm:h-24 rounded-2xl overflow-hidden ring-2 ring-white/10 shadow-2xl shadow-black/50 bg-[#0a0a14]">
               <Image
                 src="/logo.png"
                 alt="GuildNet"
@@ -206,7 +206,7 @@ export default function HomePage() {
 
           {/* Badge */}
           <span
-            className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-cyan-500/[0.06] border border-cyan-500/15 text-xs font-medium text-cyan-400 animate-[slide-up_0.6s_ease_both]"
+            className="inline-flex items-center gap-2 px-3 sm:px-4 py-1.5 rounded-full bg-cyan-500/[0.06] border border-cyan-500/15 text-[11px] sm:text-xs font-medium text-cyan-400 animate-[slide-up_0.6s_ease_both]"
             style={{ animationDelay: "200ms" }}
           >
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
@@ -215,7 +215,7 @@ export default function HomePage() {
 
           {/* Heading */}
           <h1
-            className="text-[2.25rem] sm:text-[3.5rem] md:text-[4.5rem] font-bold text-white leading-[1.05] tracking-tight animate-[slide-up_0.6s_ease_both]"
+            className="text-[2rem] leading-[1.1] sm:text-[3.5rem] sm:leading-[1.05] md:text-[4.5rem] font-bold text-white tracking-tight animate-[slide-up_0.6s_ease_both]"
             style={{ animationDelay: "300ms" }}
           >
             AI agents that{" "}
@@ -226,7 +226,7 @@ export default function HomePage() {
 
           {/* Subtitle */}
           <p
-            className="text-sm sm:text-base text-slate-400 max-w-lg leading-relaxed animate-[slide-up_0.6s_ease_both]"
+            className="text-[13px] sm:text-base text-slate-400 max-w-lg leading-relaxed animate-[slide-up_0.6s_ease_both] px-1"
             style={{ animationDelay: "400ms" }}
           >
             Submit one task. Specialized agents collaborate, execute, and settle
@@ -235,18 +235,18 @@ export default function HomePage() {
 
           {/* CTAs */}
           <div
-            className="flex flex-col sm:flex-row gap-3 w-full max-w-xs sm:max-w-none sm:w-auto animate-[slide-up_0.6s_ease_both]"
+            className="flex flex-col sm:flex-row gap-2.5 sm:gap-3 w-full max-w-[280px] sm:max-w-none sm:w-auto animate-[slide-up_0.6s_ease_both]"
             style={{ animationDelay: "500ms" }}
           >
             <Link
               href="/tasks"
-              className="btn-primary flex items-center justify-center gap-2.5 px-8 py-3.5 rounded-xl shadow-lg shadow-cyan-500/15 w-full sm:w-auto text-sm font-semibold"
+              className="btn-primary flex items-center justify-center gap-2.5 px-6 sm:px-8 py-3 sm:py-3.5 rounded-xl shadow-lg shadow-cyan-500/15 w-full sm:w-auto text-sm font-semibold"
             >
               <Sparkles className="w-4 h-4" /> Start a Task
             </Link>
             <Link
               href="/agents"
-              className="btn-ghost flex items-center justify-center gap-2.5 px-8 py-3.5 rounded-xl w-full sm:w-auto text-sm font-medium"
+              className="btn-ghost flex items-center justify-center gap-2.5 px-6 sm:px-8 py-3 sm:py-3.5 rounded-xl w-full sm:w-auto text-sm font-medium"
             >
               Browse Agents <ArrowRight className="w-4 h-4" />
             </Link>
@@ -254,7 +254,7 @@ export default function HomePage() {
 
           {/* Trusted by line */}
           <div
-            className="flex items-center gap-6 mt-4 animate-[slide-up_0.6s_ease_both]"
+            className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 mt-4 animate-[slide-up_0.6s_ease_both]"
             style={{ animationDelay: "650ms" }}
           >
             <div className="flex items-center gap-2 text-[11px] text-slate-600">
@@ -287,8 +287,8 @@ export default function HomePage() {
 
       {/* ── Stats ────────────────────────────────────────────────────── */}
       <Reveal>
-        <section className="px-5 mb-20 sm:mb-28">
-          <div className="max-w-4xl mx-auto glass-card px-6 sm:px-8 py-8 grid grid-cols-2 sm:grid-cols-4 gap-8 text-center">
+        <section className="px-4 sm:px-5 mb-16 sm:mb-28">
+          <div className="max-w-4xl mx-auto glass-card px-4 sm:px-8 py-6 sm:py-8 grid grid-cols-2 sm:grid-cols-4 gap-4 sm:gap-8 text-center">
             {STATS.map(({ value, label, suffix }) => (
               <div key={label} className="relative">
                 <p className="text-3xl sm:text-4xl font-bold gradient-text">
@@ -303,15 +303,15 @@ export default function HomePage() {
 
       {/* ── Capabilities ─────────────────────────────────────────────── */}
       <Reveal>
-        <section className="px-5 mb-20 sm:mb-28">
+        <section className="px-4 sm:px-5 mb-16 sm:mb-28">
           <div className="max-w-5xl mx-auto">
             <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500 text-center mb-3 font-medium">
               Specialist agents available now
             </p>
-            <h2 className="text-xl sm:text-2xl font-bold text-white text-center mb-10">
+            <h2 className="text-xl sm:text-2xl font-bold text-white text-center mb-6 sm:mb-10">
               Six agents. One mission.
             </h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
               {CAPABILITIES.map(({ icon: Icon, name, desc, gradient, shadow }, i) => (
                 <Reveal key={name} delay={i * 80}>
                   <div className="feature-card flex items-start gap-4 group cursor-default">
@@ -336,15 +336,15 @@ export default function HomePage() {
 
       {/* ── How it works ─────────────────────────────────────────────── */}
       <Reveal>
-        <section className="px-5 mb-20 sm:mb-28">
+        <section className="px-4 sm:px-5 mb-16 sm:mb-28">
           <div className="max-w-5xl mx-auto">
             <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500 text-center mb-3 font-medium">
               How it works
             </p>
-            <h2 className="text-xl sm:text-2xl font-bold text-white text-center mb-10">
+            <h2 className="text-xl sm:text-2xl font-bold text-white text-center mb-6 sm:mb-10">
               From task to delivery in four steps
             </h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
               {STEPS.map(({ n, title, desc, color, dot, ring }, i) => (
                 <Reveal key={n} delay={i * 100}>
                   <div className="glass-card p-5 space-y-4 group glow-hover relative overflow-hidden h-full">
@@ -375,15 +375,15 @@ export default function HomePage() {
 
       {/* ── Architecture highlight ────────────────────────────────────── */}
       <Reveal>
-        <section className="px-5 mb-20 sm:mb-28">
+        <section className="px-4 sm:px-5 mb-16 sm:mb-28">
           <div className="max-w-5xl mx-auto">
             <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500 text-center mb-3 font-medium">
               Built different
             </p>
-            <h2 className="text-xl sm:text-2xl font-bold text-white text-center mb-10">
+            <h2 className="text-xl sm:text-2xl font-bold text-white text-center mb-6 sm:mb-10">
               Three pillars of decentralised AI
             </h2>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 sm:gap-4">
               {FEATURES.map(({ icon: Icon, title, desc, color, gradient }, i) => (
                 <Reveal key={title} delay={i * 100}>
                   <div className="feature-card h-full group">
@@ -404,10 +404,10 @@ export default function HomePage() {
 
       {/* ── Code highlight ───────────────────────────────────────────── */}
       <Reveal>
-        <section className="px-5 mb-20 sm:mb-28">
+        <section className="px-4 sm:px-5 mb-16 sm:mb-28">
           <div className="max-w-3xl mx-auto">
             <div className="glass-card overflow-hidden group">
-              <div className="flex items-center gap-2 px-4 py-3 border-b border-white/[0.06]">
+              <div className="flex items-center gap-2 px-3 sm:px-4 py-2.5 sm:py-3 border-b border-white/[0.06]">
                 <div className="flex gap-1.5">
                   <div className="w-2.5 h-2.5 rounded-full bg-red-500/40" />
                   <div className="w-2.5 h-2.5 rounded-full bg-amber-500/40" />
@@ -415,7 +415,7 @@ export default function HomePage() {
                 </div>
                 <span className="text-[11px] text-slate-600 ml-2 font-mono">POST /task</span>
               </div>
-              <div className="p-5 font-mono text-xs sm:text-sm leading-relaxed overflow-x-auto">
+              <div className="p-3 sm:p-5 font-mono text-[11px] sm:text-sm leading-relaxed overflow-x-auto">
                 <div className="text-slate-500 mb-2">
                   <span className="text-violet-400">{"// "}</span>
                   <span className="text-slate-600">One request. Full pipeline.</span>
@@ -449,9 +449,9 @@ export default function HomePage() {
 
       {/* ── Bottom CTA ───────────────────────────────────────────────── */}
       <Reveal>
-        <section className="px-5 pb-20 sm:pb-28">
+        <section className="px-4 sm:px-5 pb-16 sm:pb-28">
           <div className="max-w-lg mx-auto">
-            <div className="glass-card p-8 sm:p-10 text-center space-y-5 relative overflow-hidden group">
+            <div className="glass-card p-6 sm:p-10 text-center space-y-4 sm:space-y-5 relative overflow-hidden group">
               {/* Background glow */}
               <div className="absolute inset-0 bg-gradient-to-br from-cyan-500/[0.04] via-transparent to-violet-500/[0.04] pointer-events-none group-hover:from-cyan-500/[0.06] group-hover:to-violet-500/[0.06] transition-all duration-700" />
               <div className="absolute -inset-px rounded-[inherit] bg-gradient-to-br from-cyan-500/10 via-transparent to-violet-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" />
