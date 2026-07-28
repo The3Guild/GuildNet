@@ -247,7 +247,7 @@ app.post("/agent/register/prepare", limiter, async (req: Request, res: Response,
     const agentContractHash = config.contracts.agentRegistry;
 
     if (mode === "deactivate") {
-      const deployJSON = await buildDeployJSON("deactivate", {}, agentContractHash, wallet);
+      const deployJSON = await buildDeployJSON("deactivate", {}, agentContractHash, wallet, undefined, true);
       res.json({
         deployJSON,
         entryPoint: "deactivate",
@@ -269,6 +269,8 @@ app.post("/agent/register/prepare", limiter, async (req: Request, res: Response,
       { endpoint, capability, price_per_task: priceMotes },
       agentContractHash,
       wallet,
+      undefined,
+      true,
     );
 
     res.json({
