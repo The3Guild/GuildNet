@@ -421,7 +421,6 @@ export async function submitSignedDeploy(signedDeployJSON: object): Promise<stri
     console.log(`[submitSigned] User-signed deploy → ${hash}`);
     console.log(`[submitSigned] https://testnet.cspr.live/deploy/${hash}`);
 
-    await waitForDeployLegacy(rpc, hash);
     return hash;
   }
 
@@ -440,7 +439,6 @@ export async function submitSignedDeploy(signedDeployJSON: object): Promise<stri
   console.log(`[submitSigned] User-signed transaction → ${hash}`);
   console.log(`[submitSigned] https://testnet.cspr.live/transaction/${hash}`);
 
-  await waitForTransaction(rpc, hash);
   return hash;
 }
 
@@ -478,35 +476,6 @@ async function waitForTransaction(
     }
   }
   throw new Error(`Transaction ${hash} not confirmed after ${MAX_ATTEMPTS * POLL_INTERVAL_MS / 1000}s (${MAX_ATTEMPTS} attempts)`);
-}
-
-async function waitForDeployLegacy(
-  rpc:  { getTransactionByDeployHash(h: string): Promise<unknown> },
-  hash: string,
-): Promise<void> {
-  const MAX_ATTEMPTS = 60;
-  const POLL_INTERVAL_MS = 4000;
-
-  for (let i = 0; i < MAX_ATTEMPTS; i++) {
-    await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
-    try {
-      const info = await rpc.getTransactionByDeployHash(hash) as {
-        executionInfo?: { blockHeight?: number; executionResult?: { errorMessage?: string } };
-      };
-      const exec = info.executionInfo;
-      if (exec?.blockHeight && exec.blockHeight > 0 && exec.executionResult) {
-        if (exec.executionResult.errorMessage) {
-          throw new Error(`Casper deploy failed on-chain: ${exec.executionResult.errorMessage}`);
-        }
-        return;
-      }
-    } catch (e) {
-      const msg = (e as Error).message ?? "";
-      if (msg.startsWith("Casper deploy failed")) throw e;
-      // Transient RPC errors — continue polling
-    }
-  }
-  throw new Error(`Deploy ${hash} not confirmed after ${MAX_ATTEMPTS * POLL_INTERVAL_MS / 1000}s (${MAX_ATTEMPTS} attempts)`);
 }
 
 // ── Agent execution: real A2A HTTP call → Venice fallback ─────────────────────
