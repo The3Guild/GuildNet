@@ -15,9 +15,10 @@ export default function RegisterPage() {
   const [customCap,  setCustomCap]  = useState("");
   const [price,      setPrice]      = useState("0.5");
   const [mode,       setMode]       = useState<Mode>("register");
-  const [loading,    setLoading]    = useState(false);
-  const [deployHash, setDeployHash] = useState("");
-  const [confirmed,  setConfirmed]  = useState(false);
+  const [loading,          setLoading]          = useState(false);
+  const [deployHash,       setDeployHash]       = useState("");
+  const [confirmed,        setConfirmed]        = useState(false);
+  const [onChainConfirmed, setOnChainConfirmed] = useState(false);
   const [error,      setError]      = useState("");
   const [verifying,  setVerifying]  = useState(false);
   const [verified,   setVerified]   = useState<{ ok: boolean; reason?: string } | null>(null);
@@ -46,7 +47,7 @@ export default function RegisterPage() {
     const cap = capability === "custom" ? customCap.trim().toLowerCase() : capability;
     if (mode === "register" && !cap) return;
 
-    setLoading(true); setError(""); setDeployHash(""); setConfirmed(false);
+    setLoading(true); setError(""); setDeployHash(""); setConfirmed(false); setOnChainConfirmed(false);
     try {
       const prepRes = await fetch(`${BACKEND_URL}/agent/register/prepare`, {
         method: "POST",
@@ -77,10 +78,11 @@ export default function RegisterPage() {
         const err = await submitRes.json().catch(() => ({ error: submitRes.statusText }));
         throw new Error(err.error ?? submitRes.statusText);
       }
-      const { deployHash: txHash } = await submitRes.json();
+      const { deployHash: txHash, confirmed: txConfirmed } = await submitRes.json();
       if (!txHash) throw new Error("No deploy hash returned");
       setDeployHash(txHash);
       setConfirmed(true);
+      setOnChainConfirmed(txConfirmed === true);
       if (mode !== "deactivate") {
         setTimeout(() => router.push("/agents"), 1500);
       }
@@ -193,7 +195,7 @@ export default function RegisterPage() {
               <CheckCircle className="w-4 h-4 text-green-400 mt-0.5 flex-shrink-0" />
               <div className="min-w-0">
                 <p className="text-sm font-medium text-green-400">
-                  {confirmed ? (mode === "deactivate" ? "Agent removed!" : "Agent registered!") : "Deploy sent..."}
+                  {confirmed ? (mode === "deactivate" ? "Agent removed!" : onChainConfirmed ? "Agent registered on-chain!" : "Deploy submitted — finalizing on-chain…") : "Deploy sent..."}
                 </p>
                 <a href={`${CASPER_EXPLORER}/deploy/${deployHash}`} target="_blank" rel="noreferrer"
                   className="text-xs text-cyan-400 hover:underline flex items-center gap-1 mt-1">

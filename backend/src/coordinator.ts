@@ -390,13 +390,67 @@ export async function callContractEntry(
 }
 
 /**
+ * Poll a legacy Deploy for on-chain confirmation via info_get_deploy.
+ *
+ * Legacy Deploys (CSPR.click-signed) are NOT transactions — polling them with
+ * getTransactionByTransactionHash() can never match, which caused spurious
+ * "not confirmed after 240s" failures even when the deploy succeeded (the
+ * deployment is still in a block). Legacy deploys must be polled with
+ * getDeploy() instead.
+ *
+ * Never throws. Returns { confirmed: false } if still pending after the cap,
+ * and surfaces the real on-chain error message if execution failed.
+ */
+async function pollDeployConfirmation(
+  rpc:  { getDeploy(h: string): Promise<unknown> },
+  hash: string,
+): Promise<{ confirmed: boolean; errorMessage?: string }> {
+  const MAX_ATTEMPTS = 20; // 20 × 4s = 80s cap — never block the UI for 4 minutes
+  const POLL_INTERVAL_MS = 4000;
+
+  for (let i = 0; i < MAX_ATTEMPTS; i++) {
+    await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
+    try {
+      const info = await rpc.getDeploy(hash) as any;
+
+      // Casper 2.0 response: executionInfo with a V2 ExecutionResult
+      const exec = info.executionInfo;
+      if (exec?.blockHeight && exec.blockHeight > 0) {
+        return { confirmed: true, errorMessage: exec.executionResult?.errorMessage };
+      }
+
+      // Older node response: executionResultsV1
+      const v1 = info.executionResultsV1;
+      if (Array.isArray(v1) && v1.length > 0) {
+        const failure = v1[0].result?.failure;
+        return { confirmed: true, errorMessage: failure ? failure.errorMessage : undefined };
+      }
+    } catch {
+      // Deploy not visible yet / transient RPC error — keep polling
+    }
+  }
+
+  return { confirmed: false };
+}
+
+export interface SubmitSignedResult {
+  hash:          string;
+  confirmed:     boolean;
+  errorMessage?: string;
+}
+
+/**
  * Submit an already-signed Deploy or Transaction JSON via the Casper RPC.
  * Used by POST /agent/register/submit (frontend signs via CSPR.click).
  *
  * Auto-detects whether the JSON is a legacy Deploy or TransactionV1
- * and routes to the appropriate RPC method.
+ * and routes to the appropriate RPC method, polling confirmation with the
+ * matching RPC (getDeploy for Deploys, getTransactionByTransactionHash for
+ * TransactionV1). Returns as soon as the tx is in a block — a bounded ~80s
+ * poll — and reports { confirmed: false } instead of throwing if the network
+ * is slow, so the frontend can proceed with an explorer link.
  */
-export async function submitSignedDeploy(signedDeployJSON: object): Promise<string> {
+export async function submitSignedDeploy(signedDeployJSON: object): Promise<SubmitSignedResult> {
   const sdk = await import("casper-js-sdk").then(m => m.default ?? m);
   const { Deploy, Transaction, RpcClient } = sdk;
   const { AxiosHandler } = await import("./casperHandler");
@@ -421,7 +475,8 @@ export async function submitSignedDeploy(signedDeployJSON: object): Promise<stri
     console.log(`[submitSigned] User-signed deploy → ${hash}`);
     console.log(`[submitSigned] https://testnet.cspr.live/deploy/${hash}`);
 
-    return hash;
+    const { confirmed, errorMessage } = await pollDeployConfirmation(rpc, hash);
+    return { hash, confirmed, errorMessage };
   }
 
   // TransactionV1 format
@@ -439,7 +494,35 @@ export async function submitSignedDeploy(signedDeployJSON: object): Promise<stri
   console.log(`[submitSigned] User-signed transaction → ${hash}`);
   console.log(`[submitSigned] https://testnet.cspr.live/transaction/${hash}`);
 
-  return hash;
+  const { confirmed, errorMessage } = await pollTransactionConfirmation(rpc, hash);
+  return { hash, confirmed, errorMessage };
+}
+
+/**
+ * Poll a TransactionV1 for on-chain confirmation via
+ * info_get_transaction. Graceful — returns { confirmed: false } on timeout.
+ */
+async function pollTransactionConfirmation(
+  rpc:  { getTransactionByTransactionHash(h: string): Promise<unknown> },
+  hash: string,
+): Promise<{ confirmed: boolean; errorMessage?: string }> {
+  const MAX_ATTEMPTS = 20; // 20 × 4s = 80s cap
+  const POLL_INTERVAL_MS = 4000;
+
+  for (let i = 0; i < MAX_ATTEMPTS; i++) {
+    await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
+    try {
+      const info = await rpc.getTransactionByTransactionHash(hash) as any;
+      const exec = info.executionInfo;
+      if (exec?.blockHeight && exec.blockHeight > 0 && exec.executionResult) {
+        return { confirmed: true, errorMessage: exec.executionResult.errorMessage };
+      }
+    } catch {
+      // Transient RPC errors — continue polling
+    }
+  }
+
+  return { confirmed: false };
 }
 
 async function waitForTransaction(

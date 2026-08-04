@@ -3,7 +3,7 @@ import express, { type Request, type Response, type NextFunction } from "express
 import cors from "cors";
 import rateLimit from "express-rate-limit";
 import { config } from "./config";
-import { runCoordinator, findAllAgents, queryContractVar, buildDeployJSON, submitSignedDeploy } from "./coordinator";
+import { runCoordinator, findAllAgents, queryContractVar, buildDeployJSON, submitSignedDeploy, type SubmitSignedResult } from "./coordinator";
 import { runAgent, type Capability } from "./agentRunner";
 import { buildProject } from "./builder";
 import { getReputation, getReputationEvents } from "./reputation";
@@ -301,13 +301,26 @@ app.post("/agent/register/submit", limiter, async (req: Request, res: Response, 
     };
     if (!signedDeploy) { res.status(400).json({ error: "signedDeploy is required" }); return; }
 
-    let deployHash: string;
+    let result: SubmitSignedResult;
     try {
-      deployHash = await submitSignedDeploy(signedDeploy);
+      result = await submitSignedDeploy(signedDeploy);
     } catch (err) {
       console.error(`[Server] Deploy submission failed: ${err}`);
       res.status(502).json({ error: `On-chain submission failed: ${(err as Error).message}. The transaction was not submitted to the network.` });
       return;
+    }
+
+    // Only reject when the deploy actually FAILED on-chain (not merely pending)
+    if (result.errorMessage) {
+      console.error(`[Server] Deploy ${result.hash} failed on-chain: ${result.errorMessage}`);
+      res.status(502).json({ error: `On-chain execution failed: ${result.errorMessage}.` });
+      return;
+    }
+
+    if (result.confirmed) {
+      console.log(`[Server] ✓ Deploy ${result.hash} confirmed on-chain`);
+    } else {
+      console.log(`[Server] Deploy ${result.hash} accepted but not yet finalized — frontend continues with explorer link`);
     }
 
     // Store agent in local registry so it shows up in GET /agents
@@ -331,8 +344,12 @@ app.post("/agent/register/submit", limiter, async (req: Request, res: Response, 
     }
 
     res.json({
-      deployHash,
-      explorerUrl: `https://testnet.cspr.live/deploy/${deployHash}`,
+      deployHash: result.hash,
+      confirmed:  result.confirmed,
+      explorerUrl: `https://testnet.cspr.live/deploy/${result.hash}`,
+      message: result.confirmed
+        ? "Agent registered on-chain."
+        : "Deploy submitted — waiting for on-chain confirmation.",
     });
   } catch (err) { next(err); }
 });
